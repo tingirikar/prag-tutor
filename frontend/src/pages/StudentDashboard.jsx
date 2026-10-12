@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import AppShell from '../components/layout/AppShell'
 import NavItem from '../components/layout/NavItem'
 import UserFooter from '../components/layout/UserFooter'
@@ -20,6 +20,7 @@ import { ArrowUpRight, LayoutGrid, RefreshCw } from 'lucide-react'
 
 export default function StudentDashboard() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const messagesEndRef = useRef(null)
 
   // Auth guard & user data
@@ -34,8 +35,7 @@ export default function StudentDashboard() {
     }
   }, [navigate])
 
-  // Subject state: null = Subject Selection Hub View; { code, name, ... } = Chat View
-  const [subjects, setSubjects] = useState([
+  const defaultSubjects = [
     {
       code: 'DSA',
       name: 'Data Structures & Algorithms',
@@ -64,25 +64,54 @@ export default function StudentDashboard() {
       teacherUsername: 'os',
       teacherName: 'Prof. Linus (OS Faculty)'
     }
-  ])
-  const [selectedSubject, setSelectedSubject] = useState(null)
+  ]
+
+  // Subject state: null = Subject Selection Hub View; { code, name, ... } = Chat View
+  const [subjects, setSubjects] = useState(defaultSubjects)
+
+  // Initialize selectedSubject immediately from URL query or sessionStorage so refresh never flashes/resets to Hub
+  const initialSubjectCode = searchParams.get('subject') || sessionStorage.getItem('student_selected_subject')
+  const [selectedSubject, setSelectedSubject] = useState(() => {
+    if (!initialSubjectCode) return null
+    const found = defaultSubjects.find(s => s.code.toUpperCase() === initialSubjectCode.toUpperCase())
+    return found || { code: initialSubjectCode.toUpperCase(), name: initialSubjectCode.toUpperCase() }
+  })
 
   // Conversations state (MongoDB chat history)
   const [conversations, setConversations] = useState([])
-  const [currentConversationId, setCurrentConversationId] = useState(null)
+  const initialConvId = searchParams.get('c') || sessionStorage.getItem('student_current_conv_id')
+  const [currentConversationId, setCurrentConversationId] = useState(() => initialConvId || null)
   const [deletingConvId, setDeletingConvId] = useState(null)
 
   // Chat message & interaction state
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [level, setLevel] = useState('beginner')
+  const [level, setLevelState] = useState(() => localStorage.getItem('student_pref_level') || 'beginner')
   const [loading, setLoading] = useState(false)
   const [sampleQuestions, setSampleQuestions] = useState([])
   const [refreshingQuestions, setRefreshingQuestions] = useState(false)
   const [expandedSources, setExpandedSources] = useState({})
-  const [imageMode, setImageMode] = useState('none')
-  const [model, setModel] = useState('openai/gpt-oss-20b')
-  const [provider, setProvider] = useState('groq')
+  const [imageMode, setImageModeState] = useState(() => localStorage.getItem('student_pref_image_mode') || 'none')
+  const [model, setModelState] = useState(() => localStorage.getItem('student_pref_model') || 'openai/gpt-oss-20b')
+  const [provider, setProviderState] = useState(() => localStorage.getItem('student_pref_provider') || 'groq')
+
+  const setLevel = (val) => {
+    setLevelState(val)
+    localStorage.setItem('student_pref_level', val)
+  }
+  const setImageMode = (val) => {
+    setImageModeState(val)
+    localStorage.setItem('student_pref_image_mode', val)
+  }
+  const setModel = (val) => {
+    setModelState(val)
+    localStorage.setItem('student_pref_model', val)
+  }
+  const setProvider = (val) => {
+    setProviderState(val)
+    localStorage.setItem('student_pref_provider', val)
+  }
+
   const [cloudModels, setCloudModels] = useState([
     { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (Default)', provider: 'groq' },
     { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'groq' },
@@ -112,6 +141,11 @@ export default function StudentDashboard() {
       .then(data => {
         if (data.subjects && data.subjects.length > 0) {
           setSubjects(data.subjects)
+          const activeCode = searchParams.get('subject') || sessionStorage.getItem('student_selected_subject')
+          if (activeCode) {
+            const found = data.subjects.find(s => s.code.toUpperCase() === activeCode.toUpperCase())
+            if (found) setSelectedSubject(found)
+          }
         }
       })
       .catch(err => console.warn('Could not load subjects from API:', err))
@@ -197,7 +231,9 @@ export default function StudentDashboard() {
     setCurrentConversationId(null)
     setMessages([])
     setInput('')
-    setImageMode('none')
+    sessionStorage.setItem('student_selected_subject', subj.code)
+    sessionStorage.removeItem('student_current_conv_id')
+    setSearchParams({ subject: subj.code }, { replace: true })
     setQuizMode(null)
     setActiveQuiz(null)
     setQuizResult(null)
@@ -213,6 +249,10 @@ export default function StudentDashboard() {
     setCurrentConversationId(null)
     setMessages([])
     setInput('')
+    sessionStorage.removeItem('student_selected_subject')
+    sessionStorage.removeItem('student_current_conv_id')
+    sessionStorage.removeItem('student_active_quiz')
+    setSearchParams({}, { replace: true })
     setQuizMode(null)
     setActiveQuiz(null)
     setQuizResult(null)
@@ -220,8 +260,8 @@ export default function StudentDashboard() {
   }
 
   // Load a saved conversation from MongoDB
-  const loadConversation = async (convId) => {
-    if (loading || convId === currentConversationId) return
+  const loadConversation = async (convId, targetSubjectCode = selectedSubject?.code) => {
+    if (loading) return
     try {
       setLoading(true)
       setQuizMode(null)
@@ -232,6 +272,12 @@ export default function StudentDashboard() {
       const data = await res.json()
       if (data.conversation) {
         setCurrentConversationId(convId)
+        sessionStorage.setItem('student_current_conv_id', convId)
+        const activeSubjCode = targetSubjectCode || data.conversation.subject
+        if (activeSubjCode) {
+          sessionStorage.setItem('student_selected_subject', activeSubjCode)
+          setSearchParams({ subject: activeSubjCode, c: convId }, { replace: true })
+        }
         setMessages(data.conversation.messages || [])
         // Restore query count from saved conversation
         setQueryCount(data.conversation.query_count || 0)
@@ -281,10 +327,13 @@ export default function StudentDashboard() {
   // Start a new chat thread for current subject
   const startNewChat = async () => {
     setCurrentConversationId(null)
+    sessionStorage.removeItem('student_current_conv_id')
+    if (selectedSubject?.code) {
+      setSearchParams({ subject: selectedSubject.code }, { replace: true })
+    }
     setMessages([])
     setExpandedSources({})
     setInput('')
-    setImageMode('none')
     setQuizMode(null)
     setActiveQuiz(null)
     setQuizResult(null)
@@ -293,6 +342,50 @@ export default function StudentDashboard() {
       await checkPendingQuizStatus(selectedSubject.code)
     }
   }
+
+  // Rehydrate subject and conversation from URL / sessionStorage on initial mount or refresh
+  useEffect(() => {
+    const sCode = searchParams.get('subject') || sessionStorage.getItem('student_selected_subject')
+    const cId = searchParams.get('c') || sessionStorage.getItem('student_current_conv_id')
+
+    if (sCode) {
+      const match = defaultSubjects.find(s => s.code.toUpperCase() === sCode.toUpperCase())
+      const targetSubj = match || { code: sCode.toUpperCase(), name: sCode.toUpperCase() }
+      setSelectedSubject(targetSubj)
+      sessionStorage.setItem('student_selected_subject', targetSubj.code)
+
+      fetchSampleQuestions(targetSubj.code)
+      fetchConversations(targetSubj.code)
+      checkPendingQuizStatus(targetSubj.code)
+
+      if (cId) {
+        sessionStorage.setItem('student_current_conv_id', cId)
+        loadConversation(cId, targetSubj.code)
+      } else {
+        setSearchParams({ subject: targetSubj.code }, { replace: true })
+      }
+    }
+  }, [])
+
+  // Persist active quiz in sessionStorage across refreshes
+  useEffect(() => {
+    if (quizMode === 'active' && activeQuiz) {
+      sessionStorage.setItem('student_active_quiz', JSON.stringify({ activeQuiz, quizMode }))
+    } else if (quizMode === null || quizMode === 'result') {
+      sessionStorage.removeItem('student_active_quiz')
+    }
+  }, [quizMode, activeQuiz])
+
+  // Rehydrate active quiz if student refreshes while taking a quiz
+  useEffect(() => {
+    try {
+      const savedQuiz = JSON.parse(sessionStorage.getItem('student_active_quiz') || 'null')
+      if (savedQuiz?.activeQuiz && savedQuiz.quizMode === 'active') {
+        setActiveQuiz(savedQuiz.activeQuiz)
+        setQuizMode('active')
+      }
+    } catch {}
+  }, [])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -412,6 +505,10 @@ export default function StudentDashboard() {
       // Track active conversation ID, query count, and refresh sidebar list
       if (data.conversationId) {
         setCurrentConversationId(data.conversationId)
+        sessionStorage.setItem('student_current_conv_id', data.conversationId)
+        if (selectedSubject?.code) {
+          setSearchParams({ subject: selectedSubject.code, c: data.conversationId }, { replace: true })
+        }
         fetchConversations(selectedSubject.code)
       }
       if (typeof data.query_count === 'number') {
@@ -554,6 +651,9 @@ export default function StudentDashboard() {
   const logout = () => {
     sessionStorage.removeItem('user')
     sessionStorage.removeItem('authToken')
+    sessionStorage.removeItem('student_selected_subject')
+    sessionStorage.removeItem('student_current_conv_id')
+    sessionStorage.removeItem('student_active_quiz')
     navigate('/')
   }
 

@@ -21,6 +21,19 @@ export default function Login() {
     setPillX(Math.min(half, Math.max(0, e.clientX - r.left - 4 - half / 2)))
   }
 
+  // Auto-redirect if already logged in with active session
+  useEffect(() => {
+    try {
+      const user = JSON.parse(sessionStorage.getItem('user') || '{}')
+      const token = sessionStorage.getItem('authToken')
+      if (token && user.role === 'teacher') {
+        navigate('/teacher', { replace: true })
+      } else if (token && user.role === 'student') {
+        navigate('/student', { replace: true })
+      }
+    } catch {}
+  }, [navigate])
+
   useEffect(() => {
     fetch('/api/auth/demo-accounts')
       .then((res) => {

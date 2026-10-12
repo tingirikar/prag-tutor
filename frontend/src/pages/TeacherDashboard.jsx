@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Upload, Files, GitFork } from 'lucide-react'
 import AppShell from '../components/layout/AppShell'
 import NavItem from '../components/layout/NavItem'
@@ -18,10 +18,37 @@ const sanitizeFileName = (fileName) => {
 
 export default function TeacherDashboard() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const fileInputRef = useRef(null)
 
   const [currentUser, setCurrentUser] = useState(() => JSON.parse(sessionStorage.getItem('user') || '{}'))
   const teacherSubject = (currentUser.subject || (currentUser.username?.startsWith('teacher_') ? currentUser.username.replace('teacher_', '') : currentUser.username) || '').toUpperCase()
+
+  // Tab synchronization across page refreshes
+  const validTabs = ['upload', 'documents', 'prerequisites']
+  const urlTab = searchParams.get('tab')
+  const savedTab = sessionStorage.getItem('teacher_active_tab')
+  const initialTab = validTabs.includes(urlTab) ? urlTab : (validTabs.includes(savedTab) ? savedTab : 'upload')
+
+  const [activeTab, setActiveTabState] = useState(initialTab)
+
+  const setActiveTab = (tab) => {
+    if (!validTabs.includes(tab)) return
+    setActiveTabState(tab)
+    sessionStorage.setItem('teacher_active_tab', tab)
+    setSearchParams({ tab }, { replace: true })
+  }
+
+  // Keep state synchronized with URL search params
+  useEffect(() => {
+    const currentUrlTab = searchParams.get('tab')
+    if (validTabs.includes(currentUrlTab) && currentUrlTab !== activeTab) {
+      setActiveTabState(currentUrlTab)
+      sessionStorage.setItem('teacher_active_tab', currentUrlTab)
+    } else if (!currentUrlTab && activeTab !== 'upload') {
+      setSearchParams({ tab: activeTab }, { replace: true })
+    }
+  }, [searchParams, activeTab])
 
   // Auth guard
   useEffect(() => {
@@ -38,7 +65,6 @@ export default function TeacherDashboard() {
   const [prerequisites, setPrerequisites] = useState({}) // subject prerequisites
   const [loadingPrereqs, setLoadingPrereqs] = useState(false)
   const [prereqSearch, setPrereqSearch] = useState('')
-  const [activeTab, setActiveTab] = useState('upload')
   const [dragOver, setDragOver] = useState(false)
   const [deletingDocName, setDeletingDocName] = useState(null)
 

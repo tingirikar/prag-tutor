@@ -8,6 +8,10 @@ const features = [
 ]
 
 export default function SubjectHub({ user, subjects, onSelect }) {
+  const visibleSubjects = (user?.enrolled && Array.isArray(user.enrolled) && user.enrolled.length > 0)
+    ? subjects.filter((subj) => user.enrolled.includes(subj.code))
+    : subjects
+  
   return (
     <div className="grain h-full overflow-y-auto scroll-thin">
       <div className="mx-auto max-w-6xl px-5 py-10 sm:px-8 lg:py-16">
@@ -24,7 +28,7 @@ export default function SubjectHub({ user, subjects, onSelect }) {
         </div>
 
         <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {subjects.map((subj, i) => (
+          {visibleSubjects.map((subj, i) => (
             <div
               key={subj.code}
               onClick={() => onSelect(subj)}

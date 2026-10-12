@@ -1,6 +1,7 @@
-import User from '../models/User.js'
-import { isMongoReady } from '../config/db.js'
-import { createAuthToken } from '../middleware/auth.js'
+import User from '../models/User.js';
+import { isMongoReady } from '../config/db.js';
+import { createAuthToken } from '../middleware/auth.js';
+import { DEMO_USERS } from '../config/seed.js';
 
 export async function login(request, response) {
   const { username, password } = request.body || {}
@@ -27,10 +28,24 @@ export async function login(request, response) {
         username: user.username,
         name: user.name,
         role: user.role,
-        subject: user.subject
+        subject: user.subject,
+        enrolled: user.enrolled
       }
     })
   } catch (err) {
     return response.status(500).json({ error: err.message })
   }
+}
+
+export function getDemoAccounts(_request, response) {
+  response.json({
+    accounts: DEMO_USERS.map(({ username, password, name, role, subject, enrolled }) => ({
+      username,
+      password,
+      name,
+      role,
+      subject,
+      enrolled
+    })),
+  })
 }

@@ -1,22 +1,16 @@
-import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowRight, GraduationCap, Presentation } from 'lucide-react'
-import Brand from '../components/ui/Brand'
-import Spinner from '../components/ui/Spinner'
-
-const DEMO_USERS = {
-  student: { password: 'student123', user: { username: 'student', name: 'Student', role: 'student' } },
-  teacher_dsa: { password: 'dsa123', user: { username: 'teacher_dsa', name: 'Dr. Sarah', role: 'teacher', subject: 'DSA' } },
-  teacher_ml: { password: 'ml123', user: { username: 'teacher_ml', name: 'Prof. Alan', role: 'teacher', subject: 'ML' } },
-  teacher_cn: { password: 'cn123', user: { username: 'teacher_cn', name: 'Dr. Kevin', role: 'teacher', subject: 'CN' } },
-}
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, GraduationCap, Presentation } from 'lucide-react';
+import Brand from '../components/ui/Brand';
+import Spinner from '../components/ui/Spinner';
 
 export default function Login() {
   const [role, setRole] = useState('student')
-  const [username, setUsername] = useState(role === 'student' ? 'student' : 'teacher_dsa')
-  const [password, setPassword] = useState(role === 'student' ? 'student123' : 'dsa123')
+  const [username, setUsername] = useState(role === 'student' ? 'student' : 'teacher')
+  const [password, setPassword] = useState('123')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [demoAccounts, setDemoAccounts] = useState([]);
   const navigate = useNavigate()
   // Sliding tab pill: follows the cursor while hovering, snaps back to the active role on leave
   const tabsRef = useRef(null)
@@ -27,16 +21,36 @@ export default function Login() {
     setPillX(Math.min(half, Math.max(0, e.clientX - r.left - 4 - half / 2)))
   }
 
+  useEffect(() => {
+    fetch('/api/auth/demo-accounts')
+      .then((res) => {
+        if (!res.ok) throw new Error('Could not load demo accounts')
+        return res.json();
+      })
+      .then((data) => {
+        setDemoAccounts(data.accounts || [])
+      })
+      .catch(() => {
+        setDemoAccounts([])
+      })
+  }, [])
+
+  const visibleDemoAccounts = demoAccounts.filter(
+    (account) => account.role === role
+  )
+
+  const fillDemoAccount = (account) => {
+    setUsername(account.username)
+    setPassword(account.password)
+    setError('')
+  }
+
   const handleRoleChange = (newRole) => {
     setRole(newRole)
     setError('')
-    if (newRole === 'student') {
-      setUsername('student')
-      setPassword('student123')
-    } else {
-      setUsername('teacher_dsa')
-      setPassword('dsa123')
-    }
+    setUsername('')
+    setPassword('')
+    setError('')
   }
 
   const handleLogin = async (e) => {
@@ -191,23 +205,24 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-5 min-h-[98px] rounded-xl border border-dashed border-line-strong px-4 py-3 font-mono text-xs leading-6 text-mute">
-            {role === 'student' ? (
-              <p key="s" className="animate-rise cursor-pointer transition hover:text-fg" onClick={() => { setUsername('student'); setPassword('student123'); setError('') }}>
-                Demo Student: <strong className="text-dim">student</strong> / <strong className="text-dim">student123</strong> <span className="opacity-60">(click to fill)</span>
-              </p>
-            ) : (
-              <div key="t" className="animate-rise space-y-1">
-                <p className="cursor-pointer transition hover:text-fg" onClick={() => { setUsername('teacher_dsa'); setPassword('dsa123'); setError('') }}>
-                  DSA Faculty: <strong className="text-dim">teacher_dsa</strong> / <strong className="text-dim">dsa123</strong> <span className="opacity-60">(click to fill)</span>
-                </p>
-                <p className="cursor-pointer transition hover:text-fg" onClick={() => { setUsername('teacher_ml'); setPassword('ml123'); setError('') }}>
-                  ML Faculty: <strong className="text-dim">teacher_ml</strong> / <strong className="text-dim">ml123</strong> <span className="opacity-60">(click to fill)</span>
-                </p>
-                <p className="cursor-pointer transition hover:text-fg" onClick={() => { setUsername('teacher_cn'); setPassword('cn123'); setError('') }}>
-                  CN Faculty: <strong className="text-dim">teacher_cn</strong> / <strong className="text-dim">cn123</strong> <span className="opacity-60">(click to fill)</span>
-                </p>
+          <div className="mt-5 min-h-[120px] rounded-xl border border-dashed border-line-strong px-4 py-3 font-mono text-xs leading-6 text-mute">
+            {visibleDemoAccounts.length > 0 ? (
+              <div className="space-y-1">
+                {visibleDemoAccounts.map((account) => (
+                  <p
+                    key={account.username}
+                    className="cursor-pointer transition hover:text-fg"
+                    onClick={() => fillDemoAccount(account)}
+                  >
+                    {account.name}: <strong className="text-dim">{account.username}</strong>
+                    {' / '}
+                    <strong className="text-dim">{account.password}</strong>
+                    <span className="opacity-60"> (click to fill)</span>
+                  </p>
+                ))}
               </div>
+            ) : (
+              <p>No {role} demo accounts are available.</p>
             )}
           </div>
         </div>

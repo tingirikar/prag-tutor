@@ -40,22 +40,29 @@ export default function StudentDashboard() {
       code: 'DSA',
       name: 'Data Structures & Algorithms',
       description: 'Master linear & non-linear structures, recursion, trees, graphs, sorting, and complexity analysis.',
-      teacherUsername: 'teacher_dsa',
+      teacherUsername: 'dsa',
       teacherName: 'Dr. Sarah (DSA Faculty)'
     },
     {
       code: 'ML',
       name: 'Machine Learning',
       description: 'Explore supervised & unsupervised learning, cost functions, gradient descent, neural networks, and evaluation.',
-      teacherUsername: 'teacher_ml',
+      teacherUsername: 'ml',
       teacherName: 'Prof. Alan (ML Faculty)'
     },
     {
       code: 'CN',
       name: 'Computer Networks',
       description: 'OSI & TCP/IP stack, routing protocols, flow control, congestion avoidance, sockets, and network security.',
-      teacherUsername: 'teacher_cn',
+      teacherUsername: 'cn',
       teacherName: 'Dr. Kevin (CN Faculty)'
+    },
+    {
+      code: 'OS',
+      name: 'Operating Systems',
+      description: 'Process management, concurrency, memory paging, virtual memory, storage, and file systems.',
+      teacherUsername: 'os',
+      teacherName: 'Prof. Linus (OS Faculty)'
     }
   ])
   const [selectedSubject, setSelectedSubject] = useState(null)
@@ -121,10 +128,14 @@ export default function StudentDashboard() {
 
   // Fetch subject-specific sample questions
   const fetchSampleQuestions = async (subjectCode = selectedSubject?.code) => {
+    if (!subjectCode) {
+      setSampleQuestions([])
+      return
+    }
     setRefreshingQuestions(true)
     try {
       const seed = Math.random().toString(36).substring(2, 10)
-      const res = await apiFetch(`/api/sample-questions?seed=${seed}&subject=${subjectCode || 'DSA'}`)
+      const res = await apiFetch(`/api/sample-questions?seed=${seed}&subject=${encodeURIComponent(subjectCode)}`)
       if (!res.ok) throw new Error('Could not refresh questions')
       const data = await res.json()
       if (data.questions && Array.isArray(data.questions) && data.questions.length > 0) {
@@ -153,8 +164,35 @@ export default function StudentDashboard() {
     }
   }
 
+  // Check whether student owes a compulsory quiz in current subject
+  const checkPendingQuizStatus = async (subjectCode) => {
+    const studentUser = JSON.parse(sessionStorage.getItem('user') || '{}')
+    const username = studentUser.username || 'student'
+    try {
+      const res = await apiFetch(`/api/quiz/status?studentUsername=${encodeURIComponent(username)}&subject=${encodeURIComponent(subjectCode)}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.compulsory && Array.isArray(data.questions) && data.questions.length > 0) {
+          setActiveQuiz({
+            quizSetId: null,
+            quizSetIds: data.quizSetIds || [],
+            questions: data.questions,
+            total: data.total || data.questions.length,
+            compulsory: true,
+            conversationId: null,
+          })
+          setQuizMode('active')
+          return true
+        }
+      }
+    } catch (e) {
+      console.warn('Could not check pending quiz status:', e)
+    }
+    return false
+  }
+
   // Handle selecting a subject from the hub
-  const selectSubject = (subj) => {
+  const selectSubject = async (subj) => {
     setSelectedSubject(subj)
     setCurrentConversationId(null)
     setMessages([])
@@ -166,6 +204,7 @@ export default function StudentDashboard() {
     setQueryCount(0)
     fetchSampleQuestions(subj.code)
     fetchConversations(subj.code)
+    await checkPendingQuizStatus(subj.code)
   }
 
   // Return to the Subject Hub Dashboard
@@ -197,7 +236,6 @@ export default function StudentDashboard() {
         // Restore query count from saved conversation
         setQueryCount(data.conversation.query_count || 0)
         setExpandedSources({})
-        setQueryCount(data.conversation.query_count || 0)
 
         const quizStatus = data.conversation.quiz_status
         if (quizStatus?.available && quizStatus.questions?.length > 0) {
@@ -241,7 +279,7 @@ export default function StudentDashboard() {
   }
 
   // Start a new chat thread for current subject
-  const startNewChat = () => {
+  const startNewChat = async () => {
     setCurrentConversationId(null)
     setMessages([])
     setExpandedSources({})
@@ -251,6 +289,9 @@ export default function StudentDashboard() {
     setActiveQuiz(null)
     setQuizResult(null)
     setQueryCount(0)
+    if (selectedSubject?.code) {
+      await checkPendingQuizStatus(selectedSubject.code)
+    }
   }
 
   const scrollToBottom = () => {
@@ -829,7 +870,12 @@ export default function StudentDashboard() {
         </div>
       </div>
 
-      <Lightbox image={lightboxImage} username={currentUser.username} onClose={() => setLightboxImage(null)} />
+      <Lightbox
+        image={lightboxImage}
+        username={currentUser.username}
+        token={sessionStorage.getItem('authToken')}
+        onClose={() => setLightboxImage(null)}
+      />
     </AppShell>
   )
 }

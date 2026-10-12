@@ -125,8 +125,10 @@ def stem(w: str) -> str:
     return w
 
 
-def get_all_prerequisites_data() -> Dict[str, List[str]]:
-    """Returns all topics across subjects directly from MongoDB Atlas."""
+def get_all_prerequisites_data(subject: Optional[str] = None) -> Dict[str, List[str]]:
+    """Returns topics directly from MongoDB Atlas (scoped by subject if provided)."""
+    if subject:
+        return get_prerequisites_for_subject(subject)
     db = get_db()
     if db is None:
         return {}

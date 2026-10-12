@@ -120,9 +120,9 @@ class ResponseGenerator:
         user_question: Optional[str] = None,
         topic: Optional[str] = None,
         image_mode: str = "notes",
-        subject: Optional[str] = "DSA",
+        subject: str = "",
     ) -> str:
-        subj_label = (subject or "DSA").strip().upper()
+        subj_label = (subject or "").strip().upper()
         active_docs = self._active_document_names(subject=subj_label)
         return construct_prompt(
             context=context,
@@ -154,7 +154,7 @@ class ResponseGenerator:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         preferred_model: Optional[str] = None,
         provider: Optional[str] = None,
-        subject: Optional[str] = "DSA",
+        subject: str = "",
         image_mode: str = "notes",
     ) -> ResponseResult:
         sentences = []
@@ -174,7 +174,7 @@ class ResponseGenerator:
         if len(context) > 2000:
             context = context[:2000] + "..."
 
-        subj_label = (subject or "DSA").strip().upper()
+        subj_label = (subject or "").strip().upper()
 
         prompt = self.build_dynamic_prompt(
             context=context,
@@ -251,7 +251,7 @@ class ResponseGenerator:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         preferred_model: Optional[str] = None,
         provider: Optional[str] = None,
-        subject: Optional[str] = "DSA",
+        subject: str = "",
         image_mode: str = "notes",
     ) -> ResponseResult:
         # Step 1: Pinecone vector search isolated strictly to this subject namespace
@@ -332,11 +332,10 @@ class ResponseGenerator:
         self, seed: Optional[str] = None, subject: Optional[str] = None
     ) -> List[Dict[str, str]]:
         subj_key = (subject or "").strip().upper()
-        if subj_key:
-            subj_topics_map = self.get_prerequisites_for_subject(subj_key)
-            all_topics = list(subj_topics_map.keys())
-        else:
-            all_topics = list(self.prerequisites_data.keys())
+        if not subj_key:
+            return []
+        subj_topics_map = self.get_prerequisites_for_subject(subj_key)
+        all_topics = list(subj_topics_map.keys())
 
         if not all_topics:
             return []

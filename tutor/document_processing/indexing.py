@@ -40,13 +40,17 @@ def upload_vectors_to_pinecone(
     embeddings: List[Any],
     chunk_data: List[Dict[str, Any]],
     pdf_file: str,
-    subject: str = "DSA",
+    subject: str,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> None:
     """Upserts chunk vectors and metadata into Pinecone, scoped by subject namespace."""
     if index is None:
         print("[Warning] Pinecone index is None. Skipping vector upload.")
         return
+
+    if not subject or not str(subject).strip():
+        raise ValueError("Subject is required to upload vectors to Pinecone.")
+    clean_subj = str(subject).strip().upper()
 
     vectors_to_upsert = []
     total_vecs = len(embeddings)
@@ -58,12 +62,12 @@ def upload_vectors_to_pinecone(
 
         vectors_to_upsert.append(
             (
-                f"{subject}_{pdf_file}_{i}",
+                f"{clean_subj}_{pdf_file}_{i}",
                 vector,
                 {
                     "sentence": chunk["text"],
                     "document": pdf_file,
-                    "subject": subject,
+                    "subject": clean_subj,
                     "chunk_index": i,
                     "page_numbers": json.dumps(page_nums),
                 },
@@ -71,25 +75,29 @@ def upload_vectors_to_pinecone(
         )
 
         if len(vectors_to_upsert) >= 100:
-            index.upsert(vectors=vectors_to_upsert, namespace=subject)
+            index.upsert(vectors=vectors_to_upsert, namespace=clean_subj)
             vectors_to_upsert = []
             if progress_callback:
                 progress_callback(i + 1, total_vecs)
 
     if vectors_to_upsert:
-        index.upsert(vectors=vectors_to_upsert, namespace=subject)
+        index.upsert(vectors=vectors_to_upsert, namespace=clean_subj)
         if progress_callback:
             progress_callback(total_vecs, total_vecs)
 
 
 def delete_document_data(
     filename: str,
-    subject: Optional[str] = None,
+    subject: str,
     pdf_dir: str = "",
     index=None,
     db=None,
 ) -> Dict[str, Any]:
-    """Deletes a document from disk, tracking file, vector index, and extracted images."""
+    """Deletes a document from disk, MongoDB, vector index, and extracted images."""
+    if not subject or not str(subject).strip():
+        raise ValueError("Subject is required to delete document data.")
+    clean_subj = str(subject).strip().upper()
+
     # 1. Remove file from uploads directory
     candidate_paths = [
         os.path.join(pdf_dir, subject.strip().lower(), "documents", filename) if subject else None,
@@ -101,55 +109,67 @@ def delete_document_data(
     filepath = next((p for p in candidate_paths if p and os.path.isfile(p)), os.path.join(pdf_dir, filename))
 
     file_exists = os.path.isfile(filepath)
-    tracking_file = os.path.join(pdf_dir, "processed_files.json")
-    tracking_exists = False
-    hashes = load_processed_hashes(tracking_file)
-
-    if filename in hashes:
-        tracking_exists = True
-
     if file_exists:
         os.remove(filepath)
         print(f"Removed file: {filepath}")
 
-    # 2. Update tracking file
-    if tracking_exists:
-        del hashes[filename]
-        save_processed_hashes(tracking_file, hashes)
-        print(f"Removed {filename} from tracking file.")
-
-    # 2.1. Clean up prerequisites in MongoDB Atlas for this document
-    clean_subj = (subject or "DSA").strip().upper()
+    # 2. Remove document record from MongoDB Atlas
+    db_doc_deleted = False
     if db is not None:
         try:
-            db.prerequisites.delete_many(
-                {"document": filename, "subject": clean_subj, "isCustom": False}
+            res = db.documents.delete_one({"name": filename, "subject": clean_subj})
+            if res.deleted_count > 0:
+                db_doc_deleted = True
+                print(f"Removed document record for {filename} from MongoDB Atlas ({clean_subj}).")
+        except Exception as e:
+            print(f"Notice: could not delete MongoDB document for {filename}: {e}")
+
+    # 2.1. Clean up prerequisites in MongoDB Atlas for this document
+    if db is not None:
+        try:
+            from pathlib import Path
+            doc_stem = Path(filename).stem
+            del_prereq_res = db.prerequisites.delete_many(
+                {
+                    "subject": clean_subj,
+                    "$or": [
+                        {"document": filename},
+                        {"document": doc_stem},
+                        {"document": f"{doc_stem}.pdf"},
+                    ],
+                }
             )
             print(
-                f"Removed auto-generated prerequisites for {filename} from MongoDB Atlas ({clean_subj})."
+                f"Removed {del_prereq_res.deleted_count} prerequisites for {filename} from MongoDB Atlas ({clean_subj})."
             )
         except Exception as e:
             print(f"Notice: could not delete MongoDB prerequisites for {filename}: {e}")
 
     # 3. Delete extracted images for this document
+    from pathlib import Path
+    stem = Path(filename).stem.replace(" ", "_")
     safe_name = filename.replace(" ", "_").replace(".", "_")
-    if subject:
-        subj_images_dir = os.path.join(
-            pdf_dir, subject.strip().lower(), "images", safe_name
-        )
-        if os.path.exists(subj_images_dir):
-            shutil.rmtree(subj_images_dir)
-            print(f"Removed subject-isolated extracted images for {filename} ({subject}).")
-        legacy_subj_dir = os.path.join(
-            pdf_dir, "images", subject.strip().upper(), safe_name
-        )
-        if os.path.exists(legacy_subj_dir):
-            shutil.rmtree(legacy_subj_dir)
+    image_dirs = list(dict.fromkeys([stem, safe_name]))
 
-    legacy_doc_images_dir = os.path.join(pdf_dir, "images", safe_name)
-    if os.path.exists(legacy_doc_images_dir):
-        shutil.rmtree(legacy_doc_images_dir)
-        print(f"Removed legacy extracted images for {filename}.")
+    if subject:
+        for folder_name in image_dirs:
+            subj_images_dir = os.path.join(
+                pdf_dir, subject.strip().lower(), "images", folder_name
+            )
+            if os.path.exists(subj_images_dir):
+                shutil.rmtree(subj_images_dir)
+                print(f"Removed subject-isolated extracted images for {filename} ({subject}).")
+            legacy_subj_dir = os.path.join(
+                pdf_dir, "images", subject.strip().upper(), folder_name
+            )
+            if os.path.exists(legacy_subj_dir):
+                shutil.rmtree(legacy_subj_dir)
+
+    for folder_name in image_dirs:
+        legacy_doc_images_dir = os.path.join(pdf_dir, "images", folder_name)
+        if os.path.exists(legacy_doc_images_dir):
+            shutil.rmtree(legacy_doc_images_dir)
+            print(f"Removed legacy extracted images for {filename}.")
 
     # 4. Delete vectors from Pinecone scoped by subject namespace
     vectors_pruned = False
@@ -169,8 +189,8 @@ def delete_document_data(
         except Exception as e:
             print(f"Warning deleting Pinecone vectors: {e}")
 
-    if not file_exists and not tracking_exists and not vectors_pruned:
-        raise FileNotFoundError(f"Document '{filename}' was not found.")
+    if not file_exists and not db_doc_deleted and not vectors_pruned:
+        raise FileNotFoundError(f"Document '{filename}' was not found in {clean_subj}.")
 
     return {
         "filename": filename,

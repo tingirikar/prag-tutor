@@ -54,79 +54,66 @@ class ImageHandler:
             return []
 
         found_images: List[Dict[str, Any]] = []
+        from tutor.config import get_db
+        db = get_db()
 
         for doc_name, pages in doc_pages.items():
-            safe_name = doc_name.replace(" ", "_").replace(".", "_")
-            index_path = None
-            if subject:
-                subj_path = os.path.join(
-                    self.images_dir,
-                    subject.strip().lower(),
-                    "images",
-                    safe_name,
-                    "image_index.json",
-                )
-                if os.path.exists(subj_path):
-                    index_path = subj_path
-                else:
-                    subj_path_upper = os.path.join(
-                        self.images_dir,
-                        subject.strip().upper(),
-                        "images",
-                        safe_name,
-                        "image_index.json",
-                    )
-                    if os.path.exists(subj_path_upper):
-                        index_path = subj_path_upper
-
-            if not index_path or not os.path.exists(index_path):
-                candidate = os.path.join(
-                    self.images_dir,
-                    "images",
-                    (subject or "").upper(),
-                    safe_name,
-                    "image_index.json",
-                )
-                if os.path.exists(candidate):
-                    index_path = candidate
-                elif os.path.exists(
-                    os.path.join(
-                        self.images_dir,
-                        "images",
-                        safe_name,
-                        "image_index.json",
-                    )
-                ):
-                    index_path = os.path.join(
-                        self.images_dir,
-                        "images",
-                        safe_name,
-                        "image_index.json",
-                    )
-
-            if not index_path or not os.path.exists(index_path):
+            if not subject:
                 continue
+            clean_subj = str(subject).strip().upper()
+            images_list: List[Dict[str, Any]] = []
 
-            try:
-                with open(index_path, "r", encoding="utf-8") as f:
-                    index_data = json.load(f)
-            except Exception:
-                continue
+            # 1. Primary: query MongoDB document record for extractedImages strictly within subject
+            if db is not None:
+                try:
+                    doc = db.documents.find_one({"name": doc_name, "subject": clean_subj})
+                    if not doc:
+                        doc = db.documents.find_one({"name": doc_name, "subject": clean_subj.lower()})
+                    if doc and doc.get("extractedImages"):
+                        images_list = doc.get("extractedImages", [])
+                except Exception as e:
+                    print(f"[Notice] Could not query MongoDB for document images: {e}")
 
-            for img_entry in index_data.get("images", []):
+            # 2. Legacy fallback: check image_index.json on disk if MongoDB record is not yet populated
+            if not images_list:
+                from pathlib import Path
+                stem = Path(doc_name).stem.replace(" ", "_")
+                safe_name = doc_name.replace(" ", "_").replace(".", "_")
+                index_path = None
+                for folder in [stem, safe_name]:
+                    if subject:
+                        for s in [subject.strip().lower(), subject.strip().upper()]:
+                            cand = os.path.join(self.images_dir, s, "images", folder, "image_index.json")
+                            if os.path.exists(cand):
+                                index_path = cand
+                                break
+                    if index_path:
+                        break
+                    cand_legacy = os.path.join(self.images_dir, "images", folder, "image_index.json")
+                    if os.path.exists(cand_legacy):
+                        index_path = cand_legacy
+                        break
+
+                if index_path and os.path.exists(index_path):
+                    try:
+                        with open(index_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                            images_list = data.get("images", [])
+                    except Exception:
+                        pass
+
+            for img_entry in images_list:
                 if img_entry.get("page_number") in pages:
                     stored_rel = img_entry.get("path", "")
                     img_path = os.path.join(self.images_dir, stored_rel)
                     if not os.path.isfile(img_path):
-                        alt_path = os.path.join(
-                            os.path.dirname(index_path),
-                            img_entry.get("filename", ""),
-                        )
+                        from pathlib import Path
+                        safe_subj = str(subject).strip().lower() if subject else ""
+                        if not safe_subj:
+                            continue
+                        alt_path = os.path.join(self.images_dir, safe_subj, "images", stem, img_entry.get("filename", ""))
                         if os.path.isfile(alt_path):
-                            img_path = alt_path
-                            stored_rel = os.path.relpath(
-                                alt_path, self.images_dir
-                            ).replace("\\", "/")
+                            stored_rel = f"{safe_subj}/images/{stem}/{img_entry.get('filename', '')}"
                         else:
                             continue
 

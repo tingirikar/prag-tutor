@@ -1,10 +1,10 @@
-"""Text chunking utilities with sliding window and page span tracking."""
+"""Text chunking utilities with sliding window overlap and page span tracking."""
 
 from typing import Any, Dict, List, Set, Tuple
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:
-    """Chunks raw text into segments of approximately chunk_size characters."""
+def chunk_text(text: str, chunk_size: int = 600, overlap: int = 100) -> List[str]:
+    """Chunks raw text into segments of approximately chunk_size characters with overlap."""
     raw_lines = [line.strip() for line in text.split("\n") if line.strip()]
     chunks = []
     current_chunk = []
@@ -17,8 +17,17 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str
             chunk_str = " ".join(current_chunk)
             if len(chunk_str) >= 30:
                 chunks.append(chunk_str)
-            current_chunk = [line]
-            current_len = len(line)
+            # Maintain overlap
+            overlap_lines = []
+            accum_overlap = 0
+            for prev_line in reversed(current_chunk):
+                if accum_overlap + len(prev_line) <= overlap:
+                    overlap_lines.insert(0, prev_line)
+                    accum_overlap += len(prev_line)
+                else:
+                    break
+            current_chunk = overlap_lines + [line]
+            current_len = sum(len(l) for l in current_chunk)
         else:
             current_chunk.append(line)
             current_len += len(line)
@@ -32,13 +41,14 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str
 
 
 def chunk_text_with_pages(
-    pages: List[Tuple[int, str]], chunk_size: int = 500
+    pages: List[Tuple[int, str]], chunk_size: int = 600, overlap: int = 100
 ) -> List[Dict[str, Any]]:
-    """Chunks text while tracking which page(s) each chunk came from.
+    """Chunks text while tracking which page(s) each chunk came from with semantic sliding window overlap.
 
     Args:
         pages: List of (page_number, page_text) tuples.
-        chunk_size: Maximum characters per chunk.
+        chunk_size: Maximum characters per chunk (default 600).
+        overlap: Character overlap between consecutive chunks (default 100).
 
     Returns:
         List of dicts: [{"text": "...", "page_numbers": [0, 1]}, ...]
@@ -62,9 +72,19 @@ def chunk_text_with_pages(
                             "page_numbers": sorted(current_chunk_pages),
                         }
                     )
-                current_chunk_lines = [line]
+                # Retain trailing overlap lines to maintain semantic continuity
+                overlap_lines: List[str] = []
+                accum_overlap = 0
+                for prev in reversed(current_chunk_lines):
+                    if accum_overlap + len(prev) <= overlap:
+                        overlap_lines.insert(0, prev)
+                        accum_overlap += len(prev)
+                    else:
+                        break
+
+                current_chunk_lines = overlap_lines + [line]
                 current_chunk_pages = {page_num}
-                current_len = len(line)
+                current_len = sum(len(l) for l in current_chunk_lines)
             else:
                 current_chunk_lines.append(line)
                 current_chunk_pages.add(page_num)

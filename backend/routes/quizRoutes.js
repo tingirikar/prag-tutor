@@ -1,5 +1,6 @@
-﻿import express from 'express'
+import express from 'express'
 import QuizSet from '../models/QuizSet.js'
+import { requireAuth } from '../middleware/auth.js'
 import {
   buildQuiz,
   completeQuiz,
@@ -10,6 +11,9 @@ import {
 } from '../services/quizService.js'
 
 const router = express.Router()
+
+// Secure all quiz routes: require valid JWT
+router.use(requireAuth)
 
 /**
  * Strips correctAnswer from question objects before sending to client.
@@ -49,6 +53,26 @@ function handleError(res, error) {
 }
 
 /**
+ * Enforces ownership and enrollment isolation for students.
+ */
+function checkStudentAccess(req, res, targetUsername, subject) {
+  if (req.user?.role === 'student') {
+    if (targetUsername && req.user.username !== targetUsername) {
+      res.status(403).json({ error: 'Forbidden: You cannot access or modify quizzes for other students.' })
+      return false
+    }
+    if (subject && Array.isArray(req.user.enrolled) && req.user.enrolled.length > 0) {
+      const upperEnrolled = req.user.enrolled.map((s) => String(s).toUpperCase())
+      if (!upperEnrolled.includes(String(subject).toUpperCase())) {
+        res.status(403).json({ error: `Forbidden: You are not enrolled in ${subject}.` })
+        return false
+      }
+    }
+  }
+  return true
+}
+
+/**
  * 1. POST /decision
  * Records student's decision ('yes' or 'no') for the quiz.
  * - 'yes': Builds combined quiz (pending sets + current QuizSet).
@@ -56,7 +80,13 @@ function handleError(res, error) {
  */
 router.post('/decision', async (req, res) => {
   try {
-    const { studentUsername, subject, quizSetId, decision, conversationId } = req.body || {}
+    const rawUsername = req.body?.studentUsername
+    const subject = String(req.body?.subject || '').trim().toUpperCase()
+    const { quizSetId, decision, conversationId } = req.body || {}
+
+    if (!checkStudentAccess(req, res, rawUsername, subject)) return
+
+    const studentUsername = req.user?.role === 'student' ? req.user.username : (rawUsername || req.user.username)
 
     if (!studentUsername || !subject || !decision) {
       return res.status(400).json({
@@ -106,8 +136,12 @@ router.post('/decision', async (req, res) => {
  */
 router.get('/pending', async (req, res) => {
   try {
-    const studentUsername = req.query.studentUsername || req.body?.studentUsername
-    const subject = req.query.subject || req.body?.subject
+    const rawUsername = req.query.studentUsername || req.body?.studentUsername
+    const subject = String(req.query.subject || req.body?.subject || '').trim().toUpperCase()
+
+    if (!checkStudentAccess(req, res, rawUsername, subject)) return
+
+    const studentUsername = req.user?.role === 'student' ? req.user.username : (rawUsername || req.user.username)
 
     if (!studentUsername || !subject) {
       return res.status(400).json({
@@ -133,7 +167,13 @@ router.get('/pending', async (req, res) => {
  */
 router.post('/start', async (req, res) => {
   try {
-    const { studentUsername, subject, quizSetId, conversationId } = req.body || {}
+    const rawUsername = req.body?.studentUsername
+    const subject = String(req.body?.subject || '').trim().toUpperCase()
+    const { quizSetId, conversationId } = req.body || {}
+
+    if (!checkStudentAccess(req, res, rawUsername, subject)) return
+
+    const studentUsername = req.user?.role === 'student' ? req.user.username : (rawUsername || req.user.username)
 
     if (!studentUsername || !subject) {
       return res.status(400).json({
@@ -161,8 +201,12 @@ router.post('/start', async (req, res) => {
  */
 router.get('/status', async (req, res) => {
   try {
-    const studentUsername = req.query.studentUsername || req.body?.studentUsername
-    const subject = req.query.subject || req.body?.subject
+    const rawUsername = req.query.studentUsername || req.body?.studentUsername
+    const subject = String(req.query.subject || req.body?.subject || '').trim().toUpperCase()
+
+    if (!checkStudentAccess(req, res, rawUsername, subject)) return
+
+    const studentUsername = req.user?.role === 'student' ? req.user.username : (rawUsername || req.user.username)
 
     if (!studentUsername || !subject) {
       return res.status(400).json({
@@ -198,7 +242,13 @@ router.post('/presented', async (_req, res) => {
  */
 router.post('/submit', async (req, res) => {
   try {
-    const { studentUsername, subject, quizSetIds, answers, conversationId } = req.body || {}
+    const rawUsername = req.body?.studentUsername
+    const subject = String(req.body?.subject || '').trim().toUpperCase()
+    const { quizSetIds, answers, conversationId } = req.body || {}
+
+    if (!checkStudentAccess(req, res, rawUsername, subject)) return
+
+    const studentUsername = req.user?.role === 'student' ? req.user.username : (rawUsername || req.user.username)
 
     if (!studentUsername || !subject) {
       return res.status(400).json({
@@ -241,4 +291,3 @@ router.post('/submit', async (req, res) => {
 
 export { shouldForceQuiz }
 export default router
-

@@ -3,7 +3,7 @@ import Conversation from '../models/Conversation.js'
 import { isMongoReady } from '../config/db.js'
 import { callPython } from '../services/pythonService.js'
 import { isValidObjectId } from '../middleware/validation.js'
-import { createQuizSet, getConversationQuizStatus } from '../services/quizService.js'
+import { createQuizSet, getConversationQuizStatus, shouldForceQuiz } from '../services/quizService.js'
 
 function isGenuineExplanation(result) {
   if (!result || typeof result !== 'object') return false
@@ -35,10 +35,50 @@ export async function handleQuery(request, response) {
   const query = String(request.body?.query || request.body?.question || '').trim()
   if (!query) return response.status(400).json({ error: 'Please enter a question.' })
 
-  const subject = String(request.body?.subject || 'DSA').trim()
+  const subject = String(request.body?.subject || '').trim().toUpperCase()
+  if (!subject) return response.status(400).json({ error: 'Subject is required.' })
+
+  // Verify student enrollment isolation
+  if (
+    request.user?.role === 'student' &&
+    Array.isArray(request.user.enrolled) &&
+    request.user.enrolled.length > 0
+  ) {
+    const enrolledUpper = request.user.enrolled.map(s => String(s).trim().toUpperCase())
+    if (!enrolledUpper.includes(subject)) {
+      return response.status(403).json({
+        error: `Forbidden: You are not enrolled in ${subject}.`,
+      })
+    }
+  }
+
   const topic = request.body?.topic ? String(request.body.topic).trim() : null
   const studentUsername = String(request.user?.username || request.body?.studentUsername || 'student').trim()
   let conversationId = request.body?.conversationId
+
+  // Strict Compulsory Quiz Enforcement: Block further questions if skipCount >= 2
+  if (isMongoReady() && (request.user?.role === 'student' || studentUsername)) {
+    try {
+      const isCompulsory = await shouldForceQuiz(studentUsername, subject)
+      if (isCompulsory) {
+        const quizStatus = await getConversationQuizStatus(studentUsername, subject)
+        return response.status(403).json({
+          error: `Compulsory assessment required: You have skipped 2 or more quizzes in ${subject}. Please complete the pending quiz before asking new questions.`,
+          compulsory: true,
+          quiz: {
+            available: true,
+            compulsory: true,
+            conversationId: conversationId || null,
+            quizSetIds: quizStatus.quizSetIds,
+            questions: quizStatus.questions,
+            total: quizStatus.total,
+          },
+        })
+      }
+    } catch (checkErr) {
+      console.warn('[Notice] Could not verify compulsory quiz status on ingress:', checkErr.message)
+    }
+  }
 
   try {
     // 1. Call Python RAG Backend
@@ -67,7 +107,7 @@ export async function handleQuery(request, response) {
         if (!isValidObjectId(conversationId)) {
           return response.status(400).json({ error: 'Invalid conversation ID.' })
         }
-        conversation = await Conversation.findOne({ _id: conversationId, studentUsername })
+        conversation = await Conversation.findOne({ _id: conversationId, studentUsername, subject })
       }
       if (!conversation) {
         const title = query.length > 38 ? `${query.slice(0, 38)}...` : query
@@ -222,6 +262,22 @@ export async function handleQueryImages(request, response) {
   const conversationId = request.body?.conversationId
   const messageId = request.body?.messageId
   const studentUsername = String(request.user?.username || request.body?.studentUsername || 'student').trim()
+  const subject = String(request.body?.subject || '').trim().toUpperCase()
+  if (!subject) return response.status(400).json({ error: 'Subject is required.' })
+
+  // Verify student enrollment isolation
+  if (
+    request.user?.role === 'student' &&
+    Array.isArray(request.user.enrolled) &&
+    request.user.enrolled.length > 0
+  ) {
+    const enrolledUpper = request.user.enrolled.map(s => String(s).trim().toUpperCase())
+    if (!enrolledUpper.includes(subject)) {
+      return response.status(403).json({
+        error: `Forbidden: You are not enrolled in ${subject}.`,
+      })
+    }
+  }
 
   try {
     const result = await callPython('/rag/images', {
@@ -231,7 +287,7 @@ export async function handleQueryImages(request, response) {
         query,
         topic: request.body?.topic || '',
         mode: request.body?.mode || 'notes',
-        subject: request.body?.subject || 'DSA',
+        subject,
       }),
       timeout: 120000, // 2 minute timeout for image loading
     })
@@ -240,7 +296,7 @@ export async function handleQueryImages(request, response) {
     if (isMongoReady() && conversationId && Array.isArray(result.images) && result.images.length > 0) {
       try {
         if (!isValidObjectId(conversationId)) return response.status(400).json({ error: 'Invalid conversation ID.' })
-        const conv = await Conversation.findOne({ _id: conversationId, studentUsername })
+        const conv = await Conversation.findOne({ _id: conversationId, studentUsername, subject })
         if (conv && Array.isArray(conv.messages)) {
           let updated = false
           for (let i = conv.messages.length - 1; i >= 0; i--) {
@@ -270,7 +326,23 @@ export async function handleQueryImages(request, response) {
 export async function getSampleQuestions(request, response) {
   try {
     const seed = request.query.seed || randomUUID()
-    const subject = request.query.subject || ''
+    const subject = String(request.query.subject || '').trim().toUpperCase()
+    if (!subject) return response.status(400).json({ error: 'Subject is required.' })
+
+    // Verify student enrollment isolation
+    if (
+      request.user?.role === 'student' &&
+      Array.isArray(request.user.enrolled) &&
+      request.user.enrolled.length > 0
+    ) {
+      const enrolledUpper = request.user.enrolled.map(s => String(s).trim().toUpperCase())
+      if (!enrolledUpper.includes(subject)) {
+        return response.status(403).json({
+          error: `Forbidden: You are not enrolled in ${subject}.`,
+        })
+      }
+    }
+
     const result = await callPython(`/rag/sample-questions?seed=${encodeURIComponent(seed)}&subject=${encodeURIComponent(subject)}`, {
       timeout: 60000, // 1 minute timeout for sample questions
     })

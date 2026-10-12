@@ -297,6 +297,6 @@ class PrerequisiteGenerator:
             "status": "success",
             "document": doc_basename,
             "topics_count": len(sanitized_graph),
-            "subject": (subject or "DSA").strip().upper(),
+            "subject": str(subject).strip().upper() if subject else "",
             "prerequisites": sanitized_graph,
         }

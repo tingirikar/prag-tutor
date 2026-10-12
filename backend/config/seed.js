@@ -7,35 +7,39 @@ import User from '../models/User.js';
 import Subject from '../models/Subject.js';
 
 export const DEMO_USERS = [
-  { username: 'alice', password: '123', name: 'Alice', role: 'student', enrolled: ['DSA', 'ML', 'CN']},
-  { username: 'bob', password: '123', name: 'Bob', role: 'student', enrolled: ['ML', 'CN']},
+  { username: 'alice', password: '123', name: 'Alice', role: 'student', enrolled: ['DSA', 'ML', 'CN', 'OS']},
+  { username: 'bob', password: '123', name: 'Bob', role: 'student', enrolled: ['ML', 'CN', 'OS']},
   { username: 'dsa', password: '123', name: 'Dr. Sarah', role: 'teacher', subject: 'DSA' },
   { username: 'ml', password: '123', name: 'Prof. Alan', role: 'teacher', subject: 'ML' },
   { username: 'cn', password: '123', name: 'Dr. Kevin', role: 'teacher', subject: 'CN' },
+  { username: 'os', password: '123', name: 'Prof. Linus', role: 'teacher', subject: 'OS' },
 ]
 
-// 3. Initial Subjects (DSA, ML, CN)
+// 3. Initial Subjects (DSA, ML, CN, OS)
 export const DEMO_SUBJECTS = [
   {
     code: 'DSA',
     name: 'Data Structures & Algorithms',
     description: 'Master linear & non-linear structures, recursion, trees, graphs, sorting, and complexity analysis.',
-    teacherUsername: 'teacher_dsa',
-    teacherName: 'Dr. Sarah'
+    teacherUsername: 'dsa',
   },
   {
     code: 'ML',
     name: 'Machine Learning',
     description: 'Explore supervised & unsupervised learning, cost functions, gradient descent, neural networks, and evaluation.',
-    teacherUsername: 'teacher_ml',
-    teacherName: 'Prof. Alan'
+    teacherUsername: 'ml',
   },
   {
     code: 'CN',
     name: 'Computer Networks',
     description: 'OSI & TCP/IP stack, routing protocols, flow control, congestion avoidance, sockets, and network security.',
-    teacherUsername: 'teacher_cn',
-    teacherName: 'Dr. Kevin'
+    teacherUsername: 'cn',
+  },
+  {
+    code: 'OS',
+    name: 'Operating Systems',
+    description: 'Process management, concurrency, memory paging, virtual memory, storage, and file systems.',
+    teacherUsername: 'os',
   },
 ]
 

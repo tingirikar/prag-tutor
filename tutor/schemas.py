@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class QueryRequest(BaseModel):
     query: str = Field(min_length=1)
     topic: Optional[str] = None
-    subject: Optional[str] = "DSA"
+    subject: str = Field(min_length=1)
     level: str = "beginner"
     history: List[Dict[str, str]] = Field(default_factory=list)
     include_image: bool = True
@@ -22,17 +22,17 @@ class ImageRequest(BaseModel):
     query: str = Field(min_length=1)
     topic: str = ""
     mode: str = "notes"
-    subject: Optional[str] = "DSA"
+    subject: str = Field(min_length=1)
 
 
 class DocumentRequest(BaseModel):
     filename: str = Field(min_length=1)
-    subject: Optional[str] = "DSA"
+    subject: str = Field(min_length=1)
 
 
 class IndexRequest(BaseModel):
     filenames: List[str] = Field(default_factory=list)
-    subject: Optional[str] = "DSA"
+    subject: str = Field(min_length=1)
 
 
 @dataclass

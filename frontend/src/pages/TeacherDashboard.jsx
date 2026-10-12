@@ -21,7 +21,7 @@ export default function TeacherDashboard() {
   const fileInputRef = useRef(null)
 
   const [currentUser, setCurrentUser] = useState(() => JSON.parse(sessionStorage.getItem('user') || '{}'))
-  const teacherSubject = (currentUser.subject || (currentUser.username?.startsWith('teacher_') ? currentUser.username.replace('teacher_', '').toUpperCase() : 'DSA')).toUpperCase()
+  const teacherSubject = (currentUser.subject || (currentUser.username?.startsWith('teacher_') ? currentUser.username.replace('teacher_', '') : currentUser.username) || '').toUpperCase()
 
   // Auth guard
   useEffect(() => {

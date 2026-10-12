@@ -1,15 +1,18 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import User from '../models/User.js'
 
-const tokenSecret = process.env.AUTH_SECRET || 'prag-tutor-development-secret'
 const tokenLifetimeSeconds = 8 * 60 * 60
+
+function getTokenSecret() {
+  return process.env.AUTH_SECRET || 'prag-tutor-development-secret'
+}
 
 function encode(value) {
   return Buffer.from(JSON.stringify(value)).toString('base64url')
 }
 
 function sign(value) {
-  return createHmac('sha256', tokenSecret).update(value).digest('base64url')
+  return createHmac('sha256', getTokenSecret()).update(value).digest('base64url')
 }
 
 export function createAuthToken(user) {

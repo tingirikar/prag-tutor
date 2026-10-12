@@ -21,8 +21,6 @@ from tutor.document_processing.image_extraction import (
 from tutor.document_processing.indexing import (
     delete_document_data,
     get_file_hash,
-    load_processed_hashes,
-    save_processed_hashes,
     upload_vectors_to_pinecone,
 )
 from tutor.document_processing.pdf_reader import read_pdf, read_pdf_by_page
@@ -77,7 +75,9 @@ class DocumentProcessor:
             min_unique_ratio=min_unique_ratio,
         )
 
-    def extract_images_from_pdf(self, pdf_file: str, pdf_name: str, subject: str = "DSA"):
+    def extract_images_from_pdf(self, pdf_file: str, pdf_name: str, subject: str):
+        if not subject:
+            raise ValueError("Subject is required to extract images.")
         return extract_images_from_pdf(
             pdf_file=pdf_file,
             pdf_name=pdf_name,
@@ -89,7 +89,7 @@ class DocumentProcessor:
     def process_single_pdf(
         self,
         filepath: str,
-        subject: str = "DSA",
+        subject: str,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> Dict[str, Any]:
         """Processes an individual PDF document:
@@ -99,34 +99,37 @@ class DocumentProcessor:
         3. Automatically extracts topics and generates prerequisite graph into MongoDB.
         4. Updates the tracking file.
         """
+        if not subject or not str(subject).strip():
+            return {"status": "error", "message": "Subject is required to process document."}
+        clean_subj = str(subject).strip().upper()
+        pdf_file = os.path.basename(filepath)
+        file_hash = get_file_hash(filepath) if os.path.isfile(filepath) else ""
 
-        def notify(pct, msg):
+        def notify(pct: int, msg: str):
             if progress_callback:
                 try:
                     progress_callback(pct, msg)
                 except Exception:
                     pass
 
-        if not os.path.exists(filepath):
-            return {"status": "error", "message": f"File not found: {filepath}"}
+        db = get_db()
+        existing_doc = None
+        if db is not None:
+            try:
+                existing_doc = db.documents.find_one({"name": pdf_file, "subject": clean_subj})
+            except Exception as e:
+                print(f"[Notice] Could not query MongoDB for document {pdf_file}: {e}")
 
-        pdf_file = os.path.basename(filepath)
-        notify(5, f"Validating document integrity: {pdf_file}")
-        tracking_file = os.path.join(self.pdf_dir, "processed_files.json")
-        processed_hashes = load_processed_hashes(tracking_file)
-
-        # Compute hash
-        try:
-            file_hash = get_file_hash(filepath)
-        except Exception as e:
-            return {"status": "error", "message": f"Could not hash file: {e}"}
+        existing_hash = existing_doc.get("contentHash") if existing_doc else None
+        needs_indexing = (existing_hash != file_hash) or (existing_doc and existing_doc.get("status") != "Indexed")
 
         # Multi-modal image extraction (strictly isolated by subject)
-        notify(15, f"Extracting diagrams & images from {pdf_file} ({subject})...")
-        self.extract_images_from_pdf(filepath, pdf_file, subject=subject)
+        notify(15, f"Extracting diagrams & images from {pdf_file} ({clean_subj})...")
+        extracted_images = self.extract_images_from_pdf(filepath, pdf_file, subject=clean_subj)
+        image_count = len(extracted_images) if isinstance(extracted_images, list) else 0
 
         # Upsert vectors to Pinecone isolated strictly to the subject namespace
-        if self.index is not None and processed_hashes.get(pdf_file) != file_hash:
+        if self.index is not None and needs_indexing:
             notify(30, "Reading pages & extracting text content...")
             pages = self.read_pdf_by_page(filepath)
 
@@ -139,7 +142,7 @@ class DocumentProcessor:
                 pages, progress_callback=emb_progress
             )
 
-            notify(60, f"Upserting {len(embeddings)} vectors into Pinecone ({subject})...")
+            notify(60, f"Upserting {len(embeddings)} vectors into Pinecone ({clean_subj})...")
 
             def upsert_progress(done, total):
                 upsert_pct = 60 + int(14 * (done / max(total, 1)))
@@ -150,13 +153,28 @@ class DocumentProcessor:
                 embeddings=embeddings,
                 chunk_data=chunk_data,
                 pdf_file=pdf_file,
-                subject=subject,
+                subject=clean_subj,
                 progress_callback=upsert_progress,
             )
             notify(74, f"Uploaded all {len(embeddings)} vectors to Pinecone")
 
-            processed_hashes[pdf_file] = file_hash
-            save_processed_hashes(tracking_file, processed_hashes)
+            if db is not None:
+                try:
+                    from datetime import datetime, timezone
+                    db.documents.update_one(
+                        {"name": pdf_file, "subject": clean_subj},
+                        {
+                            "$set": {
+                                "contentHash": file_hash,
+                                "status": "Indexed",
+                                "indexedAt": datetime.now(timezone.utc),
+                                "imageCount": image_count,
+                            }
+                        },
+                        upsert=True,
+                    )
+                except Exception as e:
+                    print(f"[Notice] Could not update MongoDB document status: {e}")
 
         # Automatically generate prerequisites directly to MongoDB Atlas
         prereq_res = {}
@@ -200,8 +218,13 @@ class DocumentProcessor:
                     subj = "ML"
                 elif "cn" in nl or "network" in nl:
                     subj = "CN"
-                else:
+                elif "os" in nl or "operating" in nl:
+                    subj = "OS"
+                elif "dsa" in nl or "data_structure" in nl or "algorithm" in nl:
                     subj = "DSA"
+                else:
+                    print(f"[Notice] Skipping unclassified root PDF '{item}': please place in uploads/<subject>/documents/")
+                    continue
                 pdf_entries.append((item_path, item, subj))
             elif os.path.isdir(item_path) and item.lower() not in [
                 "images",
@@ -209,8 +232,19 @@ class DocumentProcessor:
                 ".git",
             ]:
                 folder_subj = item.upper()
+                seen_subfiles = set()
+                # 1. Primary location: uploads/{subject}/documents/*.pdf
+                doc_subfolder = os.path.join(item_path, "documents")
+                if os.path.isdir(doc_subfolder):
+                    for subfile in os.listdir(doc_subfolder):
+                        if subfile.lower().endswith(".pdf"):
+                            seen_subfiles.add(subfile)
+                            pdf_entries.append(
+                                (os.path.join(doc_subfolder, subfile), subfile, folder_subj)
+                            )
+                # 2. Legacy location: uploads/{subject}/*.pdf
                 for subfile in os.listdir(item_path):
-                    if subfile.lower().endswith(".pdf"):
+                    if subfile.lower().endswith(".pdf") and subfile not in seen_subfiles:
                         pdf_entries.append(
                             (os.path.join(item_path, subfile), subfile, folder_subj)
                         )
@@ -219,9 +253,6 @@ class DocumentProcessor:
             print("No PDF files found to process.")
             return
 
-        tracking_file = os.path.join(self.pdf_dir, "processed_files.json")
-        processed_hashes = load_processed_hashes(tracking_file)
-        updated = False
         print(f"Checking {len(pdf_entries)} PDF file(s) for vector database updates...")
 
         db = get_db()
@@ -232,12 +263,22 @@ class DocumentProcessor:
                 print(f"Could not read/hash '{pdf_file}': {e}")
                 continue
 
-            file_is_new_or_modified = processed_hashes.get(pdf_file) != file_hash
+            clean_subj = file_subject.strip().upper()
+            existing_doc = None
+            if db is not None:
+                try:
+                    existing_doc = db.documents.find_one({"name": pdf_file, "subject": clean_subj})
+                except Exception:
+                    pass
+
+            existing_hash = existing_doc.get("contentHash") if existing_doc else None
+            file_is_new_or_modified = (existing_hash != file_hash) or (existing_doc and existing_doc.get("status") != "Indexed")
+
             prereqs_exist = False
             if db is not None:
                 prereqs_exist = (
                     db.prerequisites.count_documents(
-                        {"document": pdf_file, "subject": file_subject}
+                        {"document": pdf_file, "subject": clean_subj}
                     )
                     > 0
                 )
@@ -245,41 +286,53 @@ class DocumentProcessor:
 
             if file_is_new_or_modified:
                 print(
-                    f"Reading and processing updated/new file '{pdf_file}' ({file_subject})..."
+                    f"Reading and processing updated/new file '{pdf_file}' ({clean_subj})..."
                 )
-                self.extract_images_from_pdf(filepath, pdf_file, subject=file_subject)
+                extracted_images = self.extract_images_from_pdf(filepath, pdf_file, subject=clean_subj)
                 pages = self.read_pdf_by_page(filepath)
                 print(f"Generating embeddings for '{pdf_file}'...")
                 chunk_data, embeddings = self.generate_embeddings_with_pages(pages)
                 print(
-                    f"Uploading {len(chunk_data)} vectors to Pinecone namespace '{file_subject}'..."
+                    f"Uploading {len(chunk_data)} vectors to Pinecone namespace '{clean_subj}'..."
                 )
                 upload_vectors_to_pinecone(
                     index=self.index,
                     embeddings=embeddings,
                     chunk_data=chunk_data,
                     pdf_file=pdf_file,
-                    subject=file_subject,
+                    subject=clean_subj,
                 )
-                processed_hashes[pdf_file] = file_hash
-                updated = True
+                if db is not None:
+                    try:
+                        from datetime import datetime, timezone
+                        db.documents.update_one(
+                            {"name": pdf_file, "subject": clean_subj},
+                            {
+                                "$set": {
+                                    "contentHash": file_hash,
+                                    "status": "Indexed",
+                                    "indexedAt": datetime.now(timezone.utc),
+                                    "imageCount": len(extracted_images) if isinstance(extracted_images, list) else 0,
+                                }
+                            },
+                            upsert=True,
+                        )
+                    except Exception as e:
+                        print(f"Warning updating MongoDB document {pdf_file}: {e}")
                 print(f"Successfully processed and uploaded '{pdf_file}'.")
             else:
-                print(f"Skipping vector upload for '{pdf_file}' (already up-to-date).")
+                print(f"Skipping vector upload for '{pdf_file}' (already up-to-date in {clean_subj}).")
 
             if prereqs_missing:
                 try:
                     print(
-                        f"Generating automatic prerequisites for '{pdf_file}' ({file_subject})..."
+                        f"Generating automatic prerequisites for '{pdf_file}' ({clean_subj})..."
                     )
                     self.prereq_generator.generate_for_document(
-                        filepath, subject=file_subject
+                        filepath, subject=clean_subj
                     )
                 except Exception as e:
                     print(f"Warning: Could not generate prerequisites for {pdf_file}: {e}")
-
-        if updated:
-            save_processed_hashes(tracking_file, processed_hashes)
 
     def delete_document(self, filename: str, subject: Optional[str] = None):
         """Deletes a document from disk, tracking file, vector index, and extracted images."""

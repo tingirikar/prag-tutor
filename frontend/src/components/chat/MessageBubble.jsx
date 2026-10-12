@@ -27,7 +27,7 @@ function ThoughtTrace({ thinking }) {
     { label: 'Retrieved curriculum context & verified syllabus', status: 'done' },
     { label: 'Synthesized response grounded in course documents', status: 'done' },
   ]
-  const duration = thinking?.seconds ? `${thinking.seconds}s` : '1.2s'
+  const duration = thinking?.seconds ? `${thinking.seconds}s` : 'Verified'
 
   return (
     <div className="rounded-xl border border-line bg-panel p-2.5 shadow-2xs transition">
@@ -118,7 +118,7 @@ export default function MessageBubble({ msg, index, expanded, onToggleSources, o
                 <button
                   type="button"
                   key={imgIdx}
-                  onClick={() => onOpenImage(img)}
+                  onClick={() => onOpenImage({ image: img, images: msg.images, index: imgIdx })}
                   title="Click to expand"
                   className="group relative h-40 w-56 shrink-0 snap-start overflow-hidden rounded-xl border border-line bg-panel transition hover:border-accent"
                 >

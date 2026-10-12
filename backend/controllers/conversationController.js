@@ -27,6 +27,16 @@ export async function getConversations(request, response) {
     const filter = { studentUsername }
 
     if (subject) {
+      if (
+        request.user?.role === 'student' &&
+        Array.isArray(request.user.enrolled) &&
+        request.user.enrolled.length > 0
+      ) {
+        const enrolledUpper = request.user.enrolled.map(s => String(s).trim().toUpperCase())
+        if (!enrolledUpper.includes(subject.toUpperCase())) {
+          return response.status(403).json({ error: `Forbidden: You are not enrolled in ${subject}.` })
+        }
+      }
       filter.subject = subject
     }
 
@@ -61,6 +71,18 @@ export async function getConversationById(request, response) {
 
     if (!conversation) {
       return response.status(404).json({ error: 'Conversation not found.' })
+    }
+
+    if (
+      request.user?.role === 'student' &&
+      Array.isArray(request.user.enrolled) &&
+      request.user.enrolled.length > 0 &&
+      conversation.subject
+    ) {
+      const enrolledUpper = request.user.enrolled.map(s => String(s).trim().toUpperCase())
+      if (!enrolledUpper.includes(conversation.subject.toUpperCase())) {
+        return response.status(403).json({ error: `Forbidden: You are not enrolled in ${conversation.subject}.` })
+      }
     }
 
     const state = await QuizState.findOne({

@@ -6,8 +6,8 @@ import Spinner from '../components/ui/Spinner';
 
 export default function Login() {
   const [role, setRole] = useState('student')
-  const [username, setUsername] = useState(role === 'student' ? 'student' : 'teacher')
-  const [password, setPassword] = useState('123')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [demoAccounts, setDemoAccounts] = useState([]);
@@ -50,7 +50,6 @@ export default function Login() {
     setError('')
     setUsername('')
     setPassword('')
-    setError('')
   }
 
   const handleLogin = async (e) => {
@@ -205,7 +204,7 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-5 min-h-[120px] rounded-xl border border-dashed border-line-strong px-4 py-3 font-mono text-xs leading-6 text-mute">
+          <div className="mt-5 min-h-[140px] rounded-xl border border-dashed border-line-strong px-4 py-3 font-mono text-xs leading-6 text-mute">
             {visibleDemoAccounts.length > 0 ? (
               <div className="space-y-1">
                 {visibleDemoAccounts.map((account) => (

@@ -26,7 +26,9 @@ def save_prerequisites_to_mongodb(
         )
         return 0
 
-    clean_subject = (subject or "DSA").strip().upper()
+    if not subject or not str(subject).strip():
+        raise ValueError("Subject is required to persist prerequisites.")
+    clean_subject = str(subject).strip().upper()
     inserted_count = 0
 
     for topic, prereqs in prerequisite_graph.items():

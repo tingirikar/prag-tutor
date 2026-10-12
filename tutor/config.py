@@ -5,8 +5,6 @@ Groq, and SentenceTransformer so every module shares a single connection.
 """
 
 import os
-from typing import Optional
-
 from dotenv import load_dotenv
 
 # ── Paths ──────────────────────────────────────────────────────────────
@@ -23,10 +21,10 @@ load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "").strip()
+PINECONE_INDEX = os.environ.get("PINECONE_INDEX", "").strip()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
-
+OLLAMA_URL = 'http://127.0.0.1:11434'
+OLLAMA_MODEL = 'llama3.2:3b'
 
 # ── MongoDB Singleton ─────────────────────────────────────────────────
 _mongo_client = None
@@ -38,9 +36,9 @@ def get_db():
     global _mongo_client, _mongo_db
     if _mongo_db is not None:
         return _mongo_db
+    
     import pymongo
-
-    uri = os.environ.get("MONGODB_URI", "").strip() or "mongodb://127.0.0.1:27017/lpi_tutor"
+    uri = os.environ.get("MONGODB_URI", "").strip()
     try:
         _mongo_client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
         try:
@@ -56,7 +54,6 @@ def get_db():
 # ── Pinecone Index Singleton ──────────────────────────────────────────
 _pinecone_index = None
 
-
 def get_pinecone_index():
     """Returns the Pinecone index handle (lazy singleton)."""
     global _pinecone_index
@@ -69,7 +66,7 @@ def get_pinecone_index():
         import pinecone
 
         pc = pinecone.Pinecone(api_key=PINECONE_API_KEY)
-        _pinecone_index = pc.Index("intelligent-tutor")
+        _pinecone_index = pc.Index(PINECONE_INDEX)
         return _pinecone_index
     except Exception as e:
         print(f"[Warning] Failed to connect to Pinecone: {e}")

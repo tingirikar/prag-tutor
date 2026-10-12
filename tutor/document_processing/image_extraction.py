@@ -91,7 +91,7 @@ def is_quality_image(
 def extract_images_from_pdf(
     pdf_file: str,
     pdf_name: str,
-    subject: str = "DSA",
+    subject: str,
     pdf_dir: str = "",
 ) -> List[Dict[str, Any]]:
     """Extracts embedded images from a PDF using PyMuPDF.
@@ -106,9 +106,14 @@ def extract_images_from_pdf(
         )
         return []
 
-    safe_name = pdf_name.replace(" ", "_").replace(".", "_")
-    safe_subject = (subject or "DSA").strip().lower()
-    doc_images_dir = os.path.join(pdf_dir, safe_subject, "images", safe_name)
+    if not subject or not str(subject).strip():
+        raise ValueError("Subject is required for image extraction.")
+
+    from pathlib import Path
+
+    stem = Path(pdf_name).stem.replace(" ", "_")
+    safe_subject = str(subject).strip().lower()
+    doc_images_dir = os.path.join(pdf_dir, safe_subject, "images", stem)
 
     # Clean previous extraction
     if os.path.exists(doc_images_dir):
@@ -158,9 +163,12 @@ def extract_images_from_pdf(
                     if max(img.size) > max_dim:
                         img.thumbnail((max_dim, max_dim), Image.LANCZOS)
 
-                    img_filename = f"page_{page_num}_img_{img_idx}.png"
+                    image_count += 1
+                    img_filename = f"{stem}_img{image_count}.jpg"
                     img_path = os.path.join(doc_images_dir, img_filename)
-                    img.save(img_path, "PNG", optimize=True)
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+                    img.save(img_path, "JPEG", quality=90, optimize=True)
 
                     image_index.append(
                         {
@@ -170,10 +178,9 @@ def extract_images_from_pdf(
                             "height": height,
                             "size_bytes": len(image_bytes),
                             "quality_score": quality_score,
-                            "path": f"{safe_subject}/images/{safe_name}/{img_filename}",
+                            "path": f"{safe_subject}/images/{stem}/{img_filename}",
                         }
                     )
-                    image_count += 1
 
                 except Exception as img_err:
                     print(
@@ -183,19 +190,32 @@ def extract_images_from_pdf(
 
         doc.close()
 
-        # Save image index JSON
-        index_path = os.path.join(doc_images_dir, "image_index.json")
-        with open(index_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "document": pdf_name,
-                    "subject": safe_subject,
-                    "total_images": image_count,
-                    "images": image_index,
-                },
-                f,
-                indent=2,
-            )
+        # Persist extracted images manifest directly into MongoDB Atlas
+        try:
+            from tutor.config import get_db
+            db = get_db()
+            if db is not None:
+                clean_subj = safe_subject.upper()
+                db.documents.update_one(
+                    {"name": pdf_name, "subject": clean_subj},
+                    {
+                        "$set": {
+                            "extractedImages": image_index,
+                            "imageCount": image_count,
+                        }
+                    },
+                    upsert=True,
+                )
+        except Exception as db_err:
+            print(f"  [Notice] Could not update MongoDB document image index: {db_err}")
+
+        # Ensure no legacy image_index.json remains on disk
+        legacy_index = os.path.join(doc_images_dir, "image_index.json")
+        if os.path.exists(legacy_index):
+            try:
+                os.remove(legacy_index)
+            except Exception:
+                pass
 
         print(
             f"  Extracted {image_count} image(s) from '{pdf_name}' for subject '{safe_subject}'."

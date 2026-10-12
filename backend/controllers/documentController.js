@@ -1,7 +1,9 @@
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import Document from '../models/Document.js'
+import Prerequisite from '../models/Prerequisite.js'
 import User from '../models/User.js'
+import { DEMO_USERS } from '../config/seed.js'
 import { isMongoReady } from '../config/db.js'
 import { callPython, pythonUrl } from '../services/pythonService.js'
 import { filesystemDocuments } from '../services/documentService.js'
@@ -10,11 +12,20 @@ import { uploadDir } from '../middleware/upload.js'
 export async function uploadDocuments(request, response) {
   const files = [...(request.files?.file || []), ...(request.files?.files || [])]
   if (!files.length) return response.status(400).json({ error: 'No PDF file uploaded.' })
-  const subject = String(request.body?.subject || request.query?.subject || 'DSA').trim().toUpperCase()
-  const subjFolder = path.join(uploadDir, subject.toLowerCase())
+  const subject = String(request.body?.subject || request.query?.subject || '').trim().toUpperCase()
+  if (!subject) return response.status(400).json({ error: 'Subject is required.' })
+
+  // Strict Faculty Subject Authorization
+  if (request.user?.role === 'teacher' && request.user.subject && request.user.subject.toUpperCase() !== subject) {
+    return response.status(403).json({
+      error: `Forbidden: Faculty member for ${request.user.subject} is not authorized to upload documents to ${subject}.`,
+    })
+  }
+
+  const subjFolder = path.join(uploadDir, subject.toLowerCase(), 'documents')
   await fs.mkdir(subjFolder, { recursive: true })
 
-  // Ensure files are in uploads/{subject.toLowerCase()}/
+  // Ensure files are saved to uploads/{subject.toLowerCase()}/documents/
   for (const file of files) {
     const targetPath = path.join(subjFolder, file.filename)
     if (file.path && file.path !== targetPath) {
@@ -39,7 +50,9 @@ export async function uploadDocuments(request, response) {
 
     sendEvent({ percent: 5, stage: 'File received. Registering in database...' })
 
+    const filenames = files.map(file => file.filename)
     try {
+      // 1. Initial State: Uploaded
       if (isMongoReady()) {
         await Promise.all(files.map(file => Document.findOneAndUpdate(
           { name: file.filename, subject },
@@ -49,7 +62,10 @@ export async function uploadDocuments(request, response) {
       }
 
       sendEvent({ percent: 10, stage: 'Connected to AI processing engine...' })
-      const filenames = files.map(file => file.filename)
+      // 2. Next State: Processing
+      if (isMongoReady()) {
+        await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Processing' }).catch(() => {})
+      }
 
       const pyRes = await fetch(`${pythonUrl}/rag/index/stream`, {
         method: 'POST',
@@ -65,6 +81,8 @@ export async function uploadDocuments(request, response) {
       const reader = pyRes.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let hasError = false
+      let markedProcessed = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -79,6 +97,14 @@ export async function uploadDocuments(request, response) {
             try {
               const parsed = JSON.parse(trimmed.slice(6))
               sendEvent(parsed)
+              if (parsed.error) {
+                hasError = true
+              }
+              // 3. Intermediate State: Processed (content & diagrams extracted)
+              if (!markedProcessed && parsed.percent >= 30 && parsed.percent < 90 && isMongoReady()) {
+                markedProcessed = true
+                await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Processed' }).catch(() => {})
+              }
             } catch {
               // ignore partial json
             }
@@ -86,10 +112,18 @@ export async function uploadDocuments(request, response) {
         }
       }
 
-      if (isMongoReady()) await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Indexed' })
-      sendEvent({ percent: 100, stage: 'Completed & Indexed', done: true, files: filenames, subject })
+      if (hasError) {
+        if (isMongoReady()) await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Error' }).catch(() => {})
+      } else {
+        // 4. Final State: Indexed
+        if (isMongoReady()) await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Indexed', indexedAt: new Date() })
+        sendEvent({ percent: 100, stage: 'Completed & Indexed', done: true, files: filenames, subject })
+      }
       response.end()
     } catch (error) {
+      if (isMongoReady()) {
+        await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Error', processingError: error.message }).catch(() => {})
+      }
       sendEvent({ error: error.message, percent: -1 })
       response.end()
     }
@@ -97,32 +131,68 @@ export async function uploadDocuments(request, response) {
   }
 
   try {
+    const filenames = files.map(file => file.filename)
     if (isMongoReady()) {
       await Promise.all(files.map(file => Document.findOneAndUpdate(
         { name: file.filename, subject },
         { name: file.filename, size: file.size, subject, uploadedAt: new Date(), status: 'Uploaded' },
         { upsert: true, new: true },
       )))
+      await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Processing' }).catch(() => {})
     }
+
     // Only process the newly uploaded files for the given subject
-    const filenames = files.map(file => file.filename)
     await callPython('/rag/index', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filenames, subject }),
       timeout: 300000, // 5 minute timeout for document indexing
     })
-    if (isMongoReady()) await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Indexed' })
+
+    if (isMongoReady()) {
+      await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Indexed', indexedAt: new Date() })
+    }
     response.json({ message: `Successfully uploaded and indexed ${files.length} document(s) for ${subject}.`, files: filenames, subject })
   } catch (error) {
+    if (isMongoReady()) {
+      const filenames = files.map(file => file.filename)
+      await Document.updateMany({ name: { $in: filenames }, subject }, { status: 'Error', processingError: error.message }).catch(() => {})
+    }
     response.status(error.status || 500).json({ error: error.message })
   }
 }
 
 export async function getDocuments(request, response) {
   try {
-    const subject = request.query?.subject ? String(request.query.subject).trim() : null
-    const filter = subject ? { subject } : {}
+    const subject = request.query?.subject ? String(request.query.subject).trim().toUpperCase() : ''
+    if (!subject) return response.status(400).json({ error: 'Subject query parameter is required.' })
+
+    // Verify student enrollment isolation
+    if (
+      request.user?.role === 'student' &&
+      Array.isArray(request.user.enrolled) &&
+      request.user.enrolled.length > 0
+    ) {
+      const enrolledUpper = request.user.enrolled.map(s => String(s).trim().toUpperCase())
+      if (!enrolledUpper.includes(subject)) {
+        return response.status(403).json({
+          error: `Forbidden: You are not enrolled in ${subject}.`,
+        })
+      }
+    }
+
+    // Faculty members may only view documents for their assigned subject
+    if (
+      request.user?.role === 'teacher' &&
+      request.user.subject &&
+      request.user.subject.toUpperCase() !== subject
+    ) {
+      return response.status(403).json({
+        error: `Forbidden: Faculty member for ${request.user.subject} is not authorized to access ${subject} documents.`,
+      })
+    }
+
+    const filter = { subject }
     let documents = isMongoReady()
       ? await Document.find(filter).sort({ uploadedAt: -1 }).lean()
       : []
@@ -146,8 +216,16 @@ export async function getDocuments(request, response) {
 
 export async function deleteDocument(request, response) {
   const filename = path.basename(String(request.body?.filename || ''))
-  const subject = String(request.body?.subject || 'DSA').trim().toUpperCase()
+  const subject = String(request.body?.subject || '').trim().toUpperCase()
   if (!filename) return response.status(400).json({ error: 'Filename is required.' })
+  if (!subject) return response.status(400).json({ error: 'Subject is required.' })
+
+  // Strict Faculty Subject Authorization
+  if (request.user?.role === 'teacher' && request.user.subject && request.user.subject.toUpperCase() !== subject) {
+    return response.status(403).json({
+      error: `Forbidden: Faculty member for ${request.user.subject} is not authorized to delete documents from ${subject}.`,
+    })
+  }
 
   try {
     const result = await callPython('/rag/delete', {
@@ -157,15 +235,31 @@ export async function deleteDocument(request, response) {
       timeout: 60000, // 1 minute timeout for document deletion
     })
 
-    // Remove PDF from uploads/<subject.toLowerCase()>/
-    const subjectFile = path.join(uploadDir, subject.toLowerCase(), filename)
-    await fs.unlink(subjectFile).catch(() => {})
-    // Also remove extracted images: uploads/<subject.toLowerCase()>/images/<safe_name>/
-    const safeName = filename.replace(/\s+/g, '_').replace(/\./g, '_')
-    const imgDir = path.join(uploadDir, subject.toLowerCase(), 'images', safeName)
-    await fs.rm(imgDir, { recursive: true, force: true }).catch(() => {})
+    // Remove PDF from uploads/<subject.toLowerCase()>/documents/ and legacy uploads/<subject.toLowerCase()>/
+    const docFile = path.join(uploadDir, subject.toLowerCase(), 'documents', filename)
+    await fs.unlink(docFile).catch(() => {})
+    const legacyFile = path.join(uploadDir, subject.toLowerCase(), filename)
+    await fs.unlink(legacyFile).catch(() => {})
 
-    if (isMongoReady()) await Document.deleteOne({ name: filename, ...(subject ? { subject } : {}) })
+    // Remove extracted images: uploads/<subject.toLowerCase()>/images/<stem>/ and legacy <safe_name>/
+    const stem = path.parse(filename).name.replace(/\s+/g, '_')
+    const safeName = filename.replace(/\s+/g, '_').replace(/\./g, '_')
+    const imgDirStem = path.join(uploadDir, subject.toLowerCase(), 'images', stem)
+    await fs.rm(imgDirStem, { recursive: true, force: true }).catch(() => {})
+    const imgDirLegacy = path.join(uploadDir, subject.toLowerCase(), 'images', safeName)
+    await fs.rm(imgDirLegacy, { recursive: true, force: true }).catch(() => {})
+
+    if (isMongoReady()) {
+      await Document.deleteOne({ name: filename, subject })
+      await Prerequisite.deleteMany({
+        subject,
+        $or: [
+          { document: filename },
+          { document: stem },
+          { document: `${stem}.pdf` }
+        ]
+      }).catch(() => {})
+    }
     response.json({ message: `Document '${filename}' deleted successfully from ${subject}.`, ...result })
   } catch (error) {
     response.status(error.status || 500).json({ error: error.message })
@@ -202,16 +296,7 @@ export async function proxyImage(request, response) {
     if (isMongoReady()) {
       user = await User.findOne({ username })
     } else {
-      const demoUsers = {
-        student: { username: 'student', role: 'student' },
-        teacher_dsa: { username: 'teacher_dsa', role: 'teacher', subject: 'DSA' },
-        teacher_ml: { username: 'teacher_ml', role: 'teacher', subject: 'ML' },
-        teacher_os: { username: 'teacher_os', role: 'teacher', subject: 'OS' },
-        teacher_dbms: { username: 'teacher_dbms', role: 'teacher', subject: 'DBMS' },
-        teacher_networks: { username: 'teacher_networks', role: 'teacher', subject: 'NETWORKS' },
-        teacher_cn: { username: 'teacher_cn', role: 'teacher', subject: 'CN' },
-      }
-      user = demoUsers[username] || null
+      user = DEMO_USERS.find(u => u.username === username) || null
     }
 
     if (!user) {
@@ -225,6 +310,16 @@ export async function proxyImage(request, response) {
       const firstUpper = segments[0].toUpperCase()
       if (['DSA', 'ML', 'CN', 'OS', 'DBMS', 'NETWORKS'].includes(firstUpper)) {
         docSubject = firstUpper
+      }
+    }
+
+    // Students may only access diagrams for enrolled subjects
+    if (docSubject && user.role === 'student' && Array.isArray(user.enrolled) && user.enrolled.length > 0) {
+      const upperEnrolled = user.enrolled.map(s => String(s).toUpperCase())
+      if (!upperEnrolled.includes(docSubject)) {
+        return response.status(403).json({
+          error: `Forbidden: You are not enrolled in ${docSubject} course materials.`,
+        })
       }
     }
 

@@ -56,6 +56,7 @@ cd ..
 in terminal-1 (Tutor AI Service - PORT 8000)
 ```bash
 cd tutor
+.venv\Scripts\activate
 py -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 

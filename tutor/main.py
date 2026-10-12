@@ -95,7 +95,6 @@ def health() -> Dict[str, Any]:
         "status": "ok",
         "embedding_model": embedding_model is not None,
         "response_generator": response_generator is not None,
-        "multi_agent": False,
         "document_processor": document_processor is not None,
         "image_handler": image_handler is not None,
         "prerequisite_topics": (
@@ -107,15 +106,16 @@ def health() -> Dict[str, Any]:
 # ── RAG Tutoring Endpoints ─────────────────────────────────────────────
 @app.get("/rag/prerequisites")
 def prerequisites(
-    subject: Optional[str] = Query(default=None),
+    subject: str = Query(..., min_length=1),
 ) -> Dict[str, Any]:
     if not response_generator:
         raise HTTPException(
             status_code=503, detail="Response generator is unavailable."
         )
-    data = response_generator.get_prerequisites_for_subject(subject)
+    clean_subj = subject.strip().upper()
+    data = response_generator.get_prerequisites_for_subject(clean_subj)
     return {
-        "subject": subject,
+        "subject": clean_subj,
         "prerequisites": data,
         "count": len(data),
     }
@@ -123,17 +123,19 @@ def prerequisites(
 
 @app.get("/rag/sample-questions")
 def sample_questions(
+    subject: str = Query(..., min_length=1),
     seed: str = Query(default=""),
-    subject: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
     if not response_generator:
         raise HTTPException(
             status_code=503, detail="Response generator is unavailable."
         )
+    clean_subj = subject.strip().upper()
     return {
+        "subject": clean_subj,
         "questions": response_generator.generate_sample_questions(
-            seed, subject=subject
-        )
+            seed, subject=clean_subj
+        ),
     }
 
 
@@ -154,7 +156,13 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
         processed = query_processor.process_query(
             request.query, request.level.lower()
         )
-        query_embedding = embedding_model.encode(processed["query"])
+        search_query = query_processor.condense_query(
+            processed["query"],
+            history=request.history,
+            subject=request.subject,
+            groq_client=response_generator.groq_client if response_generator else None,
+        )
+        query_embedding = embedding_model.encode(search_query)
         result = response_generator.respond_to_user(
             query_embedding,
             processed["level"],
@@ -313,7 +321,7 @@ def images(request: ImageRequest) -> Dict[str, Any]:
 
 # ── Document Management Endpoints ──────────────────────────────────────
 @app.post("/rag/index")
-def index_documents(request: IndexRequest = IndexRequest()) -> Dict[str, Any]:
+def index_documents(request: IndexRequest) -> Dict[str, Any]:
     if not document_processor:
         raise HTTPException(
             status_code=503, detail="Document processor is unavailable."
@@ -321,14 +329,15 @@ def index_documents(request: IndexRequest = IndexRequest()) -> Dict[str, Any]:
     try:
         if request.filenames:
             for filename in request.filenames:
-                filepath = os.path.join(UPLOAD_DIR, filename)
-                if not os.path.exists(filepath) and request.subject:
-                    subj_filepath = os.path.join(
-                        UPLOAD_DIR, request.subject.lower(), filename
-                    )
-                    if os.path.exists(subj_filepath):
-                        filepath = subj_filepath
-                if os.path.exists(filepath):
+                candidate_paths = [
+                    os.path.join(UPLOAD_DIR, request.subject.lower(), "documents", filename) if request.subject else None,
+                    os.path.join(UPLOAD_DIR, request.subject.upper(), "documents", filename) if request.subject else None,
+                    os.path.join(UPLOAD_DIR, request.subject.lower(), filename) if request.subject else None,
+                    os.path.join(UPLOAD_DIR, request.subject.upper(), filename) if request.subject else None,
+                    os.path.join(UPLOAD_DIR, filename),
+                ]
+                filepath = next((p for p in candidate_paths if p and os.path.exists(p)), None)
+                if filepath and os.path.exists(filepath):
                     document_processor.process_single_pdf(
                         filepath, subject=request.subject
                     )
@@ -339,7 +348,7 @@ def index_documents(request: IndexRequest = IndexRequest()) -> Dict[str, Any]:
             "message": "Documents indexed successfully.",
             "subject": request.subject,
             "prerequisite_topics": (
-                len(response_generator.prerequisites_data)
+                len(response_generator.get_prerequisites_for_subject(request.subject))
                 if response_generator
                 else 0
             ),
@@ -351,7 +360,7 @@ def index_documents(request: IndexRequest = IndexRequest()) -> Dict[str, Any]:
 
 
 @app.post("/rag/index/stream")
-def index_documents_stream(request: IndexRequest = IndexRequest()):
+def index_documents_stream(request: IndexRequest):
     if not document_processor:
         raise HTTPException(
             status_code=503, detail="Document processor is unavailable."
@@ -368,14 +377,15 @@ def index_documents_stream(request: IndexRequest = IndexRequest()):
                 if request.filenames:
                     total_files = len(request.filenames)
                     for f_idx, filename in enumerate(request.filenames):
-                        filepath = os.path.join(UPLOAD_DIR, filename)
-                        if not os.path.exists(filepath) and request.subject:
-                            subj_filepath = os.path.join(
-                                UPLOAD_DIR, request.subject.lower(), filename
-                            )
-                            if os.path.exists(subj_filepath):
-                                filepath = subj_filepath
-                        if os.path.exists(filepath):
+                        candidate_paths = [
+                            os.path.join(UPLOAD_DIR, request.subject.lower(), "documents", filename) if request.subject else None,
+                            os.path.join(UPLOAD_DIR, request.subject.upper(), "documents", filename) if request.subject else None,
+                            os.path.join(UPLOAD_DIR, request.subject.lower(), filename) if request.subject else None,
+                            os.path.join(UPLOAD_DIR, request.subject.upper(), filename) if request.subject else None,
+                            os.path.join(UPLOAD_DIR, filename),
+                        ]
+                        filepath = next((p for p in candidate_paths if p and os.path.exists(p)), None)
+                        if filepath and os.path.exists(filepath):
                             file_base_pct = int((f_idx / total_files) * 100)
                             file_weight = 1.0 / total_files
 
@@ -432,7 +442,7 @@ def delete_document(request: DocumentRequest) -> Dict[str, Any]:
             **result,
             "subject": request.subject,
             "prerequisite_topics": (
-                len(response_generator.prerequisites_data)
+                len(response_generator.get_prerequisites_for_subject(request.subject))
                 if response_generator
                 else 0
             ),

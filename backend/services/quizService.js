@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import mongoose from 'mongoose'
 import QuizAttempt from '../models/QuizAttempt.js'
 import QuizSet from '../models/QuizSet.js'
@@ -27,7 +27,7 @@ async function callLLMProvider(messages) {
           temperature: 0.2,
           response_format: { type: 'json_object' },
         }),
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(15000),
       })
 
       if (response.ok) {
@@ -57,7 +57,7 @@ async function callLLMProvider(messages) {
         stream: false,
         format: 'json',
       }),
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(30000),
     })
 
     if (response.ok) {
@@ -149,18 +149,26 @@ function generateFallbackQuestions(explanation) {
   for (let i = 0; i < 3; i++) {
     const targetSentence = sentences[i % Math.max(sentences.length, 1)] || `Key algorithmic principle ${i + 1} described in the lesson.`
     const words = targetSentence.split(' ').filter((w) => w.length > 4)
-    const keyWord = words[i % Math.max(words.length, 1)] || 'property'
+    const keyWord = words[i % Math.max(words.length, 1)] || 'concept'
 
     const qText = `Based on the explanation, what is true regarding: "${targetSentence.slice(0, 70).trim()}${targetSentence.length > 70 ? '...' : ''}"?`
-    const optA = targetSentence.slice(0, 80).trim()
-    const optB = `It does not apply to ${keyWord} in this context.`
-    const optC = `It produces the inverse result for ${keyWord}.`
-    const optD = `It has been completely superseded and is not utilized.`
+    const correctOpt = targetSentence.slice(0, 80).trim()
+    const distractorB = `It does not apply to ${keyWord} under standard constraints.`
+    const distractorC = `It produces an inverted outcome for ${keyWord}.`
+    const distractorD = `It is purely decorative and not utilized in the curriculum.`
+
+    // Rotate correct answer position across A, B, C, D so Option A is not always correct
+    const optionsPool = [correctOpt, distractorB, distractorC, distractorD]
+    const targetSlot = (i + 1) % 4 // Question 1 -> B, Question 2 -> C, Question 3 -> D
+    const finalOptions = [...optionsPool]
+    const temp = finalOptions[0]
+    finalOptions[0] = finalOptions[targetSlot]
+    finalOptions[targetSlot] = temp
 
     questions.push({
       question: qText,
-      options: [optA, optB, optC, optD],
-      correctAnswer: optA,
+      options: finalOptions,
+      correctAnswer: correctOpt,
     })
   }
   return questions

@@ -10,12 +10,12 @@ def build_dynamic_prompt(
     user_question: Optional[str] = None,
     topic: Optional[str] = None,
     image_mode: str = "notes",
-    subject: Optional[str] = "DSA",
+    subject: str = "",
     prompt_version: str = "v2-grounded-tutor",
     active_documents: Optional[List[str]] = None,
 ) -> str:
     """Constructs the dynamic prompt with prerequisite context, diagram mode instructions, and airtight subject isolation guardrails."""
-    subj_label = (subject or "DSA").strip().upper()
+    subj_label = (subject or "").strip().upper()
 
     # Handle general greetings or introductory messages gracefully
     greetings = {

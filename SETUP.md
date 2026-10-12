@@ -1,7 +1,7 @@
 # Setup PRAG-TUTOR on Windows
 open command prompt and run these commands
 ensure u have python 3.10+ version
-```text
+```
 python --version
 node --version
 npm --version
@@ -22,7 +22,7 @@ git clone https://github.com/tingirikar/PRAG-TUTOR.git
 ### STEP 2 : setup environment variable
 fill api keys in .env
 ```
-copy .env.example.env
+copy .env.example .env
 ```
 or create .env file and paste contents of .env.example
 

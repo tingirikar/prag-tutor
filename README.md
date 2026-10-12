@@ -6,6 +6,12 @@ Personalization means
 - prerequisites (there is prerequistes option)
 - learner modelling (what students knows, what is his mastery in that concept)
 
+## Documentation
+- [Installation & Setup Guide](SETUP.md)
+- [System Architecture](ARCHITECTURE.md)
+- [Tech Stack Details](TECHSTACK.md)
+- [Frequently Asked Questions (FAQ)](FAQ.md)
+
 ## PRAG-TUTOR architecture
 so there are 4 folders
 ```
@@ -23,7 +29,7 @@ there are two users, students and teachers
 indexed and stored in pinecone vector database
 - images are also extracted from those documents
 
-> students
+#### students
 - 
 
 ## WHY PRAG-TUTOR STANDS OUT
@@ -38,11 +44,3 @@ ex: if i ask it about
 - beginner / intermediate / expert level personalization
 - Learner modelling supports what students knows
 - prerequiste button helps them to learn prior concepts so learning becomes easy
-
-#### frontend/
-tech stack : react, lucide-react
-
-##### RESPONSIBILITY
-it is responsible for
-> provide UI for students and teachers
-> provide UI to navigate thr web pages

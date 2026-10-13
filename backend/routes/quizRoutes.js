@@ -115,7 +115,6 @@ router.post('/decision', async (req, res) => {
 
     // decision === 'no'
     const updatedState = await recordQuizSkip(studentUsername, subject, quizSetId)
-    const isCompulsory = await shouldForceQuiz(studentUsername, subject)
 
     return res.status(200).json({
       success: true,
@@ -123,7 +122,7 @@ router.post('/decision', async (req, res) => {
       conversationId: conversationId || null,
       quizSetId,
       skipCount: updatedState.skipCount,
-      compulsory: isCompulsory,
+      compulsory: false,
     })
   } catch (error) {
     return handleError(res, error)

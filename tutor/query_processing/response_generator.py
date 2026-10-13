@@ -24,6 +24,7 @@ from tutor.query_processing.prompt_builder import (
     build_dynamic_prompt as construct_prompt,
 )
 from tutor.query_processing.topic_identifier import (
+    STOP_WORDS,
     get_all_prerequisites_data,
     get_documents_for_subject as fetch_docs,
     get_prerequisites_for_subject as fetch_subject_prereqs,
@@ -157,8 +158,38 @@ class ResponseGenerator:
         subject: str = "",
         image_mode: str = "notes",
     ) -> ResponseResult:
+        # Lexically rerank retrieved matches against student query so the most relevant chunks lead the context
+        q_text = (user_question or topic or "").lower()
+        q_tokens = {
+            stem_word(w)
+            for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_text)
+            if stem_word(w) not in STOP_WORDS
+        }
+
+        def match_sort_key(m):
+            meta = (
+                m.get("metadata", {})
+                if isinstance(m, dict)
+                else getattr(m, "metadata", {})
+            )
+            s = (meta.get("sentence") or "").lower()
+            doc = (meta.get("document") or "").lower()
+            overlap = sum(1 for tok in q_tokens if tok in s or tok in doc)
+            sim_score = float(
+                m.get("score")
+                if isinstance(m, dict)
+                else getattr(m, "score", 0.0) or 0.0
+            )
+            return (overlap > 0, overlap, sim_score)
+
+        sorted_matches = (
+            sorted(matches, key=match_sort_key, reverse=True)
+            if q_tokens
+            else matches
+        )
+
         sentences = []
-        for match in matches:
+        for match in sorted_matches:
             sentence = (
                 match.get("metadata", {}).get("sentence", "")
                 if isinstance(match, dict)

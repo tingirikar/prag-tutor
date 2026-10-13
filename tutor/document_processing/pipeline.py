@@ -24,7 +24,7 @@ from tutor.document_processing.indexing import (
     upload_vectors_to_pinecone,
 )
 from tutor.document_processing.pdf_reader import read_pdf, read_pdf_by_page
-from tutor.prerequisite_processing.pipeline import PrerequisiteGenerator
+# from tutor.prerequisite_processing.pipeline import PrerequisiteGenerator
 
 
 class DocumentProcessor:
@@ -40,6 +40,7 @@ class DocumentProcessor:
         self.pdf_dir = pdf_dir or UPLOAD_DIR
         self.model = get_embedding_model()
         self.index = get_pinecone_index()
+        from tutor.prerequisite_processing.pipeline import PrerequisiteGenerator
         self.prereq_generator = PrerequisiteGenerator()
 
     # ── PDF Reading Methods ───────────────────────────────────────────

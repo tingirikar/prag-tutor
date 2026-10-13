@@ -2,7 +2,7 @@ pymongo
 requests
 python-dotenv
 fastapi
-uvicorn[standard]
+uvicorn
 sentence-transformers
 pdfplumber
 PyMuPDF

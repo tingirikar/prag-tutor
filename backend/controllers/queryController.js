@@ -56,29 +56,7 @@ export async function handleQuery(request, response) {
   const studentUsername = String(request.user?.username || request.body?.studentUsername || 'student').trim()
   let conversationId = request.body?.conversationId
 
-  // Strict Compulsory Quiz Enforcement: Block further questions if skipCount >= 2
-  if (isMongoReady() && (request.user?.role === 'student' || studentUsername)) {
-    try {
-      const isCompulsory = await shouldForceQuiz(studentUsername, subject)
-      if (isCompulsory) {
-        const quizStatus = await getConversationQuizStatus(studentUsername, subject)
-        return response.status(403).json({
-          error: `Compulsory assessment required: You have skipped 2 or more quizzes in ${subject}. Please complete the pending quiz before asking new questions.`,
-          compulsory: true,
-          quiz: {
-            available: true,
-            compulsory: true,
-            conversationId: conversationId || null,
-            quizSetIds: quizStatus.quizSetIds,
-            questions: quizStatus.questions,
-            total: quizStatus.total,
-          },
-        })
-      }
-    } catch (checkErr) {
-      console.warn('[Notice] Could not verify compulsory quiz status on ingress:', checkErr.message)
-    }
-  }
+  // Quizzes are completely optional: students can ask questions and say no any number of times.
 
   try {
     // 1. Call Python RAG Backend

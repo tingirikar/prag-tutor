@@ -32,22 +32,36 @@ _mongo_db = None
 
 
 def get_db():
-    """Returns the MongoDB database handle (lazy singleton)."""
+    """Returns the MongoDB database handle (lazy singleton with local fallback)."""
     global _mongo_client, _mongo_db
     if _mongo_db is not None:
         return _mongo_db
     
     import pymongo
     uri = os.environ.get("MONGODB_URI", "").strip()
-    try:
-        _mongo_client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
+    if uri:
         try:
-            _mongo_db = _mongo_client.get_default_database()
-        except Exception:
-            _mongo_db = _mongo_client["test"]
+            client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=3000)
+            client.admin.command('ping')
+            _mongo_client = client
+            try:
+                _mongo_db = _mongo_client.get_default_database()
+            except Exception:
+                _mongo_db = _mongo_client["lpi_tutor"]
+            return _mongo_db
+        except Exception as e:
+            print(f"[Warning] Configured MongoDB connection failed: {e}. Falling back to local MongoDB...")
+
+    # Fallback to local MongoDB (consistent with backend/config/db.js)
+    try:
+        local_client = pymongo.MongoClient("mongodb://127.0.0.1:27017/lpi_tutor", serverSelectionTimeoutMS=3000)
+        local_client.admin.command('ping')
+        _mongo_client = local_client
+        _mongo_db = local_client["lpi_tutor"]
+        print("Connected successfully to local MongoDB (lpi_tutor).")
         return _mongo_db
     except Exception as e:
-        print(f"[Warning] Failed to connect to MongoDB: {e}")
+        print(f"[Warning] Local MongoDB connection failed: {e}")
         return None
 
 

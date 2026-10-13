@@ -123,6 +123,8 @@ router.post('/decision', async (req, res) => {
       quizSetId,
       skipCount: updatedState.skipCount,
       compulsory: false,
+      questions: [],
+      total: 0,
     })
   } catch (error) {
     return handleError(res, error)

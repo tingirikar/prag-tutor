@@ -54,17 +54,21 @@ const quizSetSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  level: {
+    type: String,
+    default: 'beginner',
+  },
   questions: {
     type: [questionSchema],
     required: true,
     validate: {
-      validator: (questions) => Array.isArray(questions) && questions.length === 3,
-      message: 'questions must contain exactly 3 question objects.',
+      validator: (questions) => Array.isArray(questions) && (questions.length === 6 || questions.length === 3),
+      message: 'questions must contain 6 question objects.',
     },
   },
   status: {
     type: String,
-    enum: ['pending', 'completed'],
+    enum: ['pending', 'completed', 'skipped'],
     default: 'pending',
     index: true,
   },

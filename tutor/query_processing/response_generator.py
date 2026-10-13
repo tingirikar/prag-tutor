@@ -285,22 +285,28 @@ class ResponseGenerator:
         subject: str = "",
         image_mode: str = "notes",
     ) -> ResponseResult:
-        # Step 1: Pinecone vector search isolated strictly to this subject namespace
+        # Step 1: Pinecone vector search isolated strictly to this subject namespace (filtered by min similarity threshold)
         matches = self.fetch_answer(
             query_embedding, top_k=5, subject=subject
         )
 
-        # Step 2: 5-layer topic identification
+        has_verified_context = bool(matches and len(matches) > 0)
+
+        # Step 2: Topic identification
         if not topic:
             topic = self.identify_topic_from_rag(
                 matches, user_question, subject=subject
             )
 
-        # Step 3: Retrieve prerequisites corresponding to that topic
+        # Step 3: Retrieve prerequisites strictly for verified course topics
+        # If the question is unrelated to the PDFs (no verified matches), do NOT assign any prerequisites
         if prerequisites is None:
-            prerequisites = self.get_prerequisites_for_topic(
-                topic, subject=subject
-            )
+            if has_verified_context and topic:
+                prerequisites = self.get_prerequisites_for_topic(
+                    topic, subject=subject
+                )
+            else:
+                prerequisites = []
 
         # Step 4: Extract structured source citations
         sources = []

@@ -427,7 +427,7 @@ export default function StudentDashboard() {
           quizSetId: data.quiz.quizSetId,
           quizSetIds: data.quiz.quizSetIds || [],
           questions: [],
-          total: data.quiz.total || 3,
+          total: data.quiz.total || 6,
           compulsory: false,
           conversationId: data.conversationId || currentConversationId,
         })
@@ -732,7 +732,7 @@ export default function StudentDashboard() {
                 conversationId={activeQuiz.conversationId || currentConversationId}
                 studentUsername={currentUser.username || 'student'}
                 subject={selectedSubject.code}
-                total={activeQuiz.total || 3}
+                total={activeQuiz.total || 6}
                 onYes={(quizData) => {
                   setActiveQuiz(prev => ({ ...prev, ...quizData }))
                   setQuizMode('active')
@@ -784,25 +784,6 @@ export default function StudentDashboard() {
         {/* Composer area */}
         <div className="shrink-0 bg-linear-to-t from-ink via-ink to-transparent px-3 pt-2 pb-3 sm:px-6 sm:pb-5">
           <div className="mx-auto w-full max-w-5xl xl:max-w-6xl">
-            {/* 3-Query Session Progress Indicator */}
-            {queryCount > 0 && queryCount < 3 && quizMode === null && (
-              <div
-                className="mb-2.5 flex items-center gap-3 rounded-xl border border-accent/20 bg-accent-soft px-3.5 py-1.5 text-xs text-dim shadow-2xs"
-                title={`Query ${queryCount} of 3 in this learning session`}
-              >
-                <span className="font-semibold text-accent-strong shrink-0">
-                  Session: {queryCount}/3 queries
-                  {queryCount === 1 ? ' — 2 more for your quiz' : ' — 1 more for your quiz'}
-                </span>
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-raised border border-line">
-                  <div
-                    className="h-full bg-accent transition-all duration-300"
-                    style={{ width: `${(queryCount / 3) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
             <Composer
               input={input}
               setInput={setInput}

@@ -5,41 +5,74 @@ import QuizSet from '../models/QuizSet.js'
 import QuizState from '../models/QuizState.js'
 
 /**
+ * Normalizes difficulty level string and provides pedagogical focus guidelines.
+ */
+function normalizeLevel(level) {
+  const l = String(level || '').trim().toLowerCase()
+  if (l === 'beginner' || l === 'easy') {
+    return {
+      name: 'Easy (Beginner)',
+      focus: 'fundamental definitions, key concepts, terminology, and direct conceptual identification',
+    }
+  }
+  if (l === 'expert' || l === 'hard') {
+    return {
+      name: 'Hard (Expert)',
+      focus: 'edge cases, worst-case trade-offs, internal mechanics, algorithmic invariants, and in-depth analytical reasoning',
+    }
+  }
+  return {
+    name: 'Medium (Intermediate)',
+    focus: 'operational mechanics, typical algorithmic execution, time and space complexities, and comparative trade-offs',
+  }
+}
+
+/**
  * Clean helper to call the configured AI provider in the project.
- * Supports Groq Cloud API as primary with local Ollama as fallback.
+ * Supports Groq Cloud API with model fallbacks (openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b)
+ * and local Ollama as final fallback.
  */
 async function callLLMProvider(messages) {
   const groqApiKey = (process.env.GROQ_API_KEY || '').trim()
-  const groqModel = process.env.GROQ_MODEL || 'openai/gpt-oss-20b'
+  const preferredModel = (process.env.GROQ_MODEL || '').trim()
+
+  const candidateModels = [
+    preferredModel,
+    'openai/gpt-oss-120b',
+    'qwen/qwen3.8-27b',
+    'openai/gpt-oss-20b',
+  ].filter(Boolean)
+  const uniqueModels = Array.from(new Set(candidateModels))
 
   // Attempt 1: Groq Cloud API
   if (groqApiKey) {
-    try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqApiKey}`,
-        },
-        body: JSON.stringify({
-          model: groqModel,
-          messages,
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
-        }),
-        signal: AbortSignal.timeout(15000),
-      })
+    for (const model of uniqueModels) {
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqApiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.3,
+          }),
+          signal: AbortSignal.timeout(30000),
+        })
 
-      if (response.ok) {
-        const data = await response.json()
-        const content = data.choices?.[0]?.message?.content
-        if (content) return content
-      } else {
-        const errorText = await response.text().catch(() => '')
-        console.error(`[quizService] Groq API returned ${response.status}: ${errorText}`)
+        if (response.ok) {
+          const data = await response.json()
+          const content = data.choices?.[0]?.message?.content
+          if (content && content.trim()) return content
+        } else {
+          const errorText = await response.text().catch(() => '')
+          console.warn(`[quizService] Groq model ${model} returned ${response.status}: ${errorText}`)
+        }
+      } catch (err) {
+        console.warn(`[quizService] Groq request error for ${model}:`, err.message)
       }
-    } catch (err) {
-      console.error('[quizService] Groq request error:', err.message)
     }
   }
 
@@ -55,7 +88,6 @@ async function callLLMProvider(messages) {
         model: ollamaModel,
         messages,
         stream: false,
-        format: 'json',
       }),
       signal: AbortSignal.timeout(30000),
     })
@@ -63,17 +95,17 @@ async function callLLMProvider(messages) {
     if (response.ok) {
       const data = await response.json()
       const content = data.message?.content
-      if (content) return content
+      if (content && content.trim()) return content
     }
   } catch (err) {
-    console.error('[quizService] Ollama request error:', err.message)
+    console.warn('[quizService] Ollama request error:', err.message)
   }
 
   throw new Error('AI provider unavailable. Please configure GROQ_API_KEY or ensure local Ollama is running.')
 }
 
 /**
- * Parses and validates raw LLM output into exactly 3 question objects.
+ * Parses and validates raw LLM output into exactly 6 high-quality question objects.
  */
 function parseAndValidateQuestions(rawContent) {
   let parsed
@@ -97,11 +129,11 @@ function parseAndValidateQuestions(rawContent) {
     ? parsed
     : (Array.isArray(parsed?.questions) ? parsed.questions : parsed?.quiz || [])
 
-  if (!Array.isArray(rawList) || rawList.length !== 3) {
-    throw new Error(`Expected exactly 3 questions from AI provider, received ${rawList?.length || 0}.`)
+  if (!Array.isArray(rawList) || rawList.length < 6) {
+    throw new Error(`Expected at least 6 questions from AI provider, received ${rawList?.length || 0}.`)
   }
 
-  return rawList.map((item, index) => {
+  return rawList.slice(0, 6).map((item, index) => {
     const question = String(item.question || '').trim()
     if (!question) {
       throw new Error(`Question ${index + 1} is missing question text.`)
@@ -138,28 +170,70 @@ function parseAndValidateQuestions(rawContent) {
 }
 
 /**
- * Fallback MCQ generator: reliably generates 3 valid MCQs from explanation text
- * when external LLM providers are offline or rate-limited.
+ * Fallback MCQ generator: creates conceptual questions from explanation key terms
+ * when all external LLM providers are offline.
  */
-function generateFallbackQuestions(explanation) {
+function generateFallbackQuestions(explanation, levelName = 'Medium') {
   const clean = explanation.replace(/[#*`_\[\]()]/g, ' ').replace(/\s+/g, ' ').trim()
-  const sentences = clean.split(/(?<=[.?!])\s+/).filter((s) => s.length >= 20 && s.length <= 250)
+  const words = clean.split(/\s+/).filter((w) => w.length > 4 && /^[a-zA-Z]+$/.test(w))
+  const keyTerms = Array.from(new Set(words)).slice(0, 8)
+
+  const templates = [
+    {
+      q: (t) => `What is the primary role or conceptual definition of ${t} as described in the lesson?`,
+      correct: (t) => `It serves as a foundational component establishing the core properties of ${t}.`,
+      d1: (t) => `It is an auxiliary mechanism discarded after memory allocation.`,
+      d2: (t) => `It reverses the operational order to guarantee constant time execution.`,
+      d3: (t) => `It is deprecated under standard modern algorithmic constraints.`,
+    },
+    {
+      q: (t) => `In terms of algorithmic behavior, how does ${t} function according to the explanation?`,
+      correct: (t) => `It follows the deterministic rules and constraints specified in the lesson.`,
+      d1: (t) => `It performs random permutations regardless of input structure.`,
+      d2: (t) => `It bypasses typical invariants and executes unconditionally.`,
+      d3: (t) => `It replaces all recursive steps with static memory buffers.`,
+    },
+    {
+      q: (t) => `What is the expected complexity or efficiency characteristic related to ${t}?`,
+      correct: (t) => `It is bounded by the height or structure of the underlying data representation.`,
+      d1: (t) => `It always operates in O(1) time irrespective of input volume.`,
+      d2: (t) => `It suffers exponential degradation in all practical configurations.`,
+      d3: (t) => `It cannot be analyzed using standard asymptotic bounds.`,
+    },
+    {
+      q: (t) => `Which invariant or condition must remain satisfied when manipulating ${t}?`,
+      correct: (t) => `The ordering and structural consistency defined in the explanation.`,
+      d1: (t) => `All nodes or elements must carry strictly identical values.`,
+      d2: (t) => `Every element must be stored in a flat contiguous array without pointers.`,
+      d3: (t) => `Tree height must always equal zero.`,
+    },
+    {
+      q: (t) => `Under what scenario would performance related to ${t} degrade towards worst-case bounds?`,
+      correct: (t) => `When elements are inserted in skewed or unbalanced order without rebalancing.`,
+      d1: (t) => `When the input size is smaller than the system word size.`,
+      d2: (t) => `When accessed concurrently in read-only mode.`,
+      d3: (t) => `When balanced structures like AVL trees are introduced.`,
+    },
+    {
+      q: (t) => `Why is understanding ${t} essential for mastery of this topic at ${levelName} level?`,
+      correct: (t) => `It provides the conceptual foundation for optimizing searches and modifications.`,
+      d1: (t) => `It eliminates the requirement of writing code for data structures.`,
+      d2: (t) => `It converts all data types into primitive integer scalars automatically.`,
+      d3: (t) => `It is only used for hardware graphics pipelines.`,
+    },
+  ]
 
   const questions = []
-  for (let i = 0; i < 3; i++) {
-    const targetSentence = sentences[i % Math.max(sentences.length, 1)] || `Key algorithmic principle ${i + 1} described in the lesson.`
-    const words = targetSentence.split(' ').filter((w) => w.length > 4)
-    const keyWord = words[i % Math.max(words.length, 1)] || 'concept'
+  for (let i = 0; i < 6; i++) {
+    const term = keyTerms[i % Math.max(keyTerms.length, 1)] || 'the algorithm'
+    const tpl = templates[i % templates.length]
 
-    const qText = `Based on the explanation, what is true regarding: "${targetSentence.slice(0, 70).trim()}${targetSentence.length > 70 ? '...' : ''}"?`
-    const correctOpt = targetSentence.slice(0, 80).trim()
-    const distractorB = `It does not apply to ${keyWord} under standard constraints.`
-    const distractorC = `It produces an inverted outcome for ${keyWord}.`
-    const distractorD = `It is purely decorative and not utilized in the curriculum.`
+    const qText = tpl.q(term)
+    const correctOpt = tpl.correct(term)
+    const optionsPool = [correctOpt, tpl.d1(term), tpl.d2(term), tpl.d3(term)]
 
-    // Rotate correct answer position across A, B, C, D so Option A is not always correct
-    const optionsPool = [correctOpt, distractorB, distractorC, distractorD]
-    const targetSlot = (i + 1) % 4 // Question 1 -> B, Question 2 -> C, Question 3 -> D
+    // Rotate options so correct answer isn't always Option A
+    const targetSlot = (i + 1) % 4
     const finalOptions = [...optionsPool]
     const temp = finalOptions[0]
     finalOptions[0] = finalOptions[targetSlot]
@@ -175,28 +249,36 @@ function generateFallbackQuestions(explanation) {
 }
 
 /**
- * 1. generateQuizQuestions(explanation)
- * Generates exactly 3 single-correct MCQs based strictly on the supplied explanation.
+ * 1. generateQuizQuestions(explanation, level, query)
+ * Generates exactly 6 high-quality, conceptual MCQs based on the lesson explanation
+ * tailored strictly to the user's selected difficulty level.
  */
-export async function generateQuizQuestions(explanation) {
+export async function generateQuizQuestions(explanation, level = 'beginner', query = '') {
   if (!explanation || typeof explanation !== 'string' || !explanation.trim()) {
     throw new Error('Valid explanation text is required to generate quiz questions.')
   }
 
+  const levelInfo = normalizeLevel(level)
+
   const systemPrompt =
-    'You are an educational assessment expert for PRAG-TUTOR. ' +
-    'Generate exactly 3 single-correct multiple-choice questions (MCQs) based SOLELY and STRICTLY on the provided explanation text. ' +
-    'Do NOT use outside or general knowledge. Everything must be derived exclusively from the text. ' +
-    'Output ONLY a valid JSON object with a "questions" array containing exactly 3 items.'
+    `You are an expert Computer Science educator and assessment designer for PRAG-TUTOR. ` +
+    `Your task is to create high-quality, conceptual multiple-choice questions (MCQs) evaluating a student's grasp of the provided lesson explanation. ` +
+    `Difficulty Level: ${levelInfo.name} (Focus on ${levelInfo.focus}). ` +
+    `Output ONLY a valid JSON object matching the requested schema.`
 
   const userPrompt =
-    `Generate exactly 3 single-correct MCQs based ONLY on the following explanation:\n\n` +
-    `---\n${explanation.trim()}\n---\n\n` +
-    `Rules:\n` +
-    `1. Questions must be derived strictly and exclusively from the text above.\n` +
-    `2. Generate exactly 3 questions.\n` +
-    `3. Each question must have exactly 4 distinct options.\n` +
-    `4. Each question must have exactly one correct answer matching one of the options verbatim.\n\n` +
+    `Generate exactly 6 conceptual multiple-choice questions (MCQs) based on the lesson explanation below.\n\n` +
+    (query ? `STUDENT QUERY:\n${query.trim()}\n\n` : '') +
+    `LESSON EXPLANATION:\n"""\n${explanation.trim()}\n"""\n\n` +
+    `DIFFICULTY LEVEL: ${levelInfo.name}\n` +
+    `Focus: ${levelInfo.focus}\n\n` +
+    `Strict Quality Guidelines:\n` +
+    `1. Conceptual Depth: Do NOT ask superficial questions or repeat the question text inside the answer options.\n` +
+    `2. Question Structure: Formulate clear, well-phrased questions that genuinely test understanding of concepts, mechanisms, algorithms, properties, and complexity described in the lesson.\n` +
+    `3. Plausible Distractors: Each question must have exactly 4 options. All 3 wrong options (distractors) must be realistic, intelligent misconceptions or closely related technical terms—never nonsense, trivial fragments, or obvious throwaways.\n` +
+    `4. Options Quality: Keep options concise, distinct, and meaningful. Do NOT quote verbatim whole sentences from the text as options.\n` +
+    `5. Verbatim Correct Answer: The "correctAnswer" field must exactly match one of the 4 items in "options".\n` +
+    `6. Return exactly 6 questions.\n\n` +
     `Return ONLY a JSON object formatted as:\n` +
     `{\n` +
     `  "questions": [\n` +
@@ -218,13 +300,14 @@ export async function generateQuizQuestions(explanation) {
     return parseAndValidateQuestions(rawContent)
   } catch (providerError) {
     console.warn('[quizService] AI provider failed, using derived fallback questions:', providerError.message)
-    return generateFallbackQuestions(explanation)
+    return generateFallbackQuestions(explanation, levelInfo.name)
   }
 }
 
 /**
- * 2. createQuizSet({ studentUsername, subject, conversationId, query, explanation })
- * Generates exactly 3 MCQs and saves one QuizSet with initial status 'pending'.
+ * 2. createQuizSet({ studentUsername, subject, conversationId, query, explanation, level })
+ * Generates exactly 6 MCQs tailored to the user's selected difficulty level
+ * and saves one QuizSet with initial status 'pending'.
  */
 export async function createQuizSet({
   studentUsername,
@@ -232,12 +315,13 @@ export async function createQuizSet({
   conversationId,
   query,
   explanation,
+  level = 'beginner',
 }) {
   if (!conversationId) {
     throw new Error('conversationId is required for createQuizSet.')
   }
 
-  const rawQuestions = await generateQuizQuestions(explanation)
+  const rawQuestions = await generateQuizQuestions(explanation, level, query)
 
   const questions = rawQuestions.map((q) => ({
     question_id: randomUUID(),
@@ -252,11 +336,12 @@ export async function createQuizSet({
     conversationId: String(conversationId),
     query,
     explanation,
+    level: String(level || 'beginner'),
     questions,
     status: 'pending',
   })
 
-  console.log(`[QUIZ SET CREATED] id=${quizSet._id} student=${studentUsername} subject=${subject} questions=3`)
+  console.log(`[QUIZ SET CREATED] id=${quizSet._id} student=${studentUsername} subject=${subject} level=${level} questions=6`)
   return quizSet
 }
 
@@ -290,65 +375,31 @@ export async function getQuizState(studentUsername, subject) {
 
 /**
  * 4. recordQuizSkip(studentUsername, subject, quizSetId)
- * Adds the QuizSet ID to pendingQuizSetIds and increments skipCount.
+ * Marks QuizSet as skipped, clears pendingQuizSetIds, and increments skipCount.
  */
 export async function recordQuizSkip(studentUsername, subject, quizSetId) {
   const state = await getQuizState(studentUsername, subject)
 
   if (quizSetId) {
     const targetIdStr = quizSetId?._id ? quizSetId._id.toString() : quizSetId.toString()
-    const alreadyPending = (state.pendingQuizSetIds || []).some(
-      (id) => id.toString() === targetIdStr
-    )
-    if (!alreadyPending) {
-      state.pendingQuizSetIds.push(quizSetId)
-    }
+    await QuizSet.updateOne({ _id: targetIdStr }, { status: 'skipped' })
   }
 
+  // Clear pendingQuizSetIds so quizzes are not stacked or carried over
+  state.pendingQuizSetIds = []
   state.skipCount = (state.skipCount || 0) + 1
   await state.save()
 
-  console.log(`[QUIZ SKIP] student=${studentUsername} subject=${subject} skipCount=${state.skipCount} pendingSets=${state.pendingQuizSetIds.length}`)
+  console.log(`[QUIZ SKIP] student=${studentUsername} subject=${subject} skipCount=${state.skipCount} quiz dismissed, pending cleared`)
   return state
 }
 
 /**
  * 5. getPendingQuizSets(studentUsername, subject)
- * Retrieves active non-completed QuizSets for the student and subject.
+ * Quizzes are not stacked across queries. Returns empty array.
  */
 export async function getPendingQuizSets(studentUsername, subject) {
-  const state = await getQuizState(studentUsername, subject)
-
-  if (!state || !state.pendingQuizSetIds || state.pendingQuizSetIds.length === 0) {
-    return []
-  }
-
-  const pendingDocs = await QuizSet.find({
-    _id: { $in: state.pendingQuizSetIds },
-    status: 'pending',
-  }).sort({ createdAt: 1 })
-
-  const pendingMap = new Map(pendingDocs.map((doc) => [doc._id.toString(), doc]))
-
-  const validPendingSets = []
-  const validPendingIds = []
-
-  for (const id of state.pendingQuizSetIds) {
-    const idStr = id.toString()
-    const doc = pendingMap.get(idStr)
-    if (doc && doc.status === 'pending') {
-      validPendingSets.push(doc)
-      validPendingIds.push(doc._id)
-    }
-  }
-
-  // Sync if any were cleaned or already completed
-  if (validPendingIds.length !== state.pendingQuizSetIds.length) {
-    state.pendingQuizSetIds = validPendingIds
-    await state.save()
-  }
-
-  return validPendingSets
+  return []
 }
 
 /**
@@ -361,51 +412,20 @@ export async function shouldForceQuiz(studentUsername, subject) {
 
 /**
  * 7. getConversationQuizStatus(studentUsername, subject, currentQuizSet)
- * Quizzes are strictly optional. Returns active questions without forcing compulsory state.
+ * Quizzes are strictly optional and per-query (not stacked).
  */
 export async function getConversationQuizStatus(studentUsername, subject, currentQuizSet = null) {
   const state = await getQuizState(studentUsername, subject)
   const compulsory = false
 
-  const pendingSets = await getPendingQuizSets(studentUsername, subject)
-
-  // In compulsory mode: combine pending QuizSets + current QuizSet
-  const combinedSets = [...pendingSets]
-  if (currentQuizSet) {
-    const currentIdStr = currentQuizSet._id.toString()
-    if (!combinedSets.some((qs) => qs._id.toString() === currentIdStr)) {
-      combinedSets.push(currentQuizSet)
-    }
-  }
-
-  let questionsToPresent = []
-  let quizSetIds = []
-
-  if (compulsory) {
-    for (const qs of combinedSets) {
-      quizSetIds.push(qs._id.toString())
-      for (const q of qs.questions || []) {
-        questionsToPresent.push({
-          question_id: q.question_id,
-          question: q.question,
-          options: q.options,
-        })
-      }
-    }
-  } else if (currentQuizSet) {
-    quizSetIds = [currentQuizSet._id.toString()]
-  }
-
-  const totalCalculated = compulsory
-    ? questionsToPresent.length
-    : (pendingSets.length + (currentQuizSet ? 1 : 0)) * 3
+  const quizSetIds = currentQuizSet ? [currentQuizSet._id.toString()] : []
+  const totalCalculated = currentQuizSet ? (currentQuizSet.questions?.length || 6) : 0
 
   console.log(
     `[QUIZ STATUS]\n` +
     `  student=${studentUsername} subject=${subject}\n` +
     `  skipCount=${state?.skipCount || 0}\n` +
     `  compulsory=${compulsory}\n` +
-    `  pendingSets=${pendingSets.length}\n` +
     `  hasCurrentQuizSet=${Boolean(currentQuizSet)}\n` +
     `  totalQuestions=${totalCalculated}`
   )
@@ -413,57 +433,51 @@ export async function getConversationQuizStatus(studentUsername, subject, curren
   return {
     quizRequired: compulsory,
     compulsory,
-    questions: questionsToPresent,
+    questions: [],
     quizSetIds,
     total: totalCalculated,
-    pendingCount: pendingSets.length,
+    pendingCount: 0,
     skipCount: state?.skipCount || 0,
   }
 }
 
 /**
  * 8. buildQuiz(studentUsername, subject, currentQuizSetId)
- * Returns the combined quiz payload:
- * pendingQuizSetIds for the current student+subject + current QuizSet.
+ * Returns the quiz payload for the current query context only.
  */
 export async function buildQuiz(studentUsername, subject, currentQuizSetId = null) {
-  const state = await getQuizState(studentUsername, subject)
-
-  const allSetIdStrings = new Set()
-  if (state?.pendingQuizSetIds) {
-    for (const id of state.pendingQuizSetIds) {
-      allSetIdStrings.add(id.toString())
-    }
-  }
-  if (currentQuizSetId) {
-    const currIdStr = currentQuizSetId?._id ? currentQuizSetId._id.toString() : currentQuizSetId.toString()
-    allSetIdStrings.add(currIdStr)
-  }
-
-  const quizSets = await QuizSet.find({
-    _id: { $in: Array.from(allSetIdStrings) },
-    status: 'pending',
-  }).sort({ createdAt: 1 })
-
-  const questionsToPresent = []
-  for (const qs of quizSets) {
-    for (const q of qs.questions || []) {
-      questionsToPresent.push({
-        question_id: q.question_id,
-        question: q.question,
-        options: q.options,
-      })
+  if (!currentQuizSetId) {
+    return {
+      quizSetIds: [],
+      questions: [],
+      total: 0,
     }
   }
 
-  const finalSetIds = quizSets.map((qs) => qs._id.toString())
+  const currIdStr = currentQuizSetId?._id ? currentQuizSetId._id.toString() : currentQuizSetId.toString()
+  const quizSet = await QuizSet.findById(currIdStr)
+
+  if (!quizSet) {
+    return {
+      quizSetIds: [],
+      questions: [],
+      total: 0,
+    }
+  }
+
+  const questionsToPresent = (quizSet.questions || []).map((q) => ({
+    question_id: q.question_id,
+    question: q.question,
+    options: q.options,
+  }))
 
   return {
-    quizSetIds: finalSetIds,
+    quizSetIds: [quizSet._id.toString()],
     questions: questionsToPresent,
     total: questionsToPresent.length,
   }
 }
+
 
 /**
  * 9. completeQuiz({ studentUsername, subject, quizSetIds, answers, conversationId })

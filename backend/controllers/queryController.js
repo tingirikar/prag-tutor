@@ -137,12 +137,14 @@ export async function handleQuery(request, response) {
 
       if (isGenuine) {
         try {
+          const level = request.body?.level || 'beginner'
           currentQuizSet = await createQuizSet({
             studentUsername,
             subject,
             conversationId,
             query,
             explanation,
+            level,
           })
         } catch (quizError) {
           console.warn('[QUIZ ERROR] Generation failed:', quizError.message)

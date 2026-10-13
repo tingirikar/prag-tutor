@@ -173,6 +173,7 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
             provider=request.provider,
             subject=request.subject,
             image_mode=request.image_mode,
+            mastered_topics=request.mastered_topics,
         )
         response_text = getattr(result, "response", str(result))
 
@@ -217,8 +218,8 @@ def get_available_models() -> Dict[str, Any]:
     """Return available online (Groq) and local (Ollama) LLM models."""
     cloud_models = [
         {
-            "id": "openai/gpt-oss-20b",
-            "name": "GPT-OSS 20B (Default)",
+            "id": "qwen/qwen3.8-27b",
+            "name": "Qwen 3.8 27B (Default)",
             "provider": "groq",
             "badge": "Cloud (Groq)",
         },
@@ -229,8 +230,8 @@ def get_available_models() -> Dict[str, Any]:
             "badge": "Cloud (Groq)",
         },
         {
-            "id": "qwen/qwen3.8-27b",
-            "name": "Qwen 3.8 27B",
+            "id": "openai/gpt-oss-20b",
+            "name": "GPT-OSS 20B",
             "provider": "groq",
             "badge": "Cloud (Groq)",
         },

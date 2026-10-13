@@ -284,6 +284,9 @@ router.post('/submit', async (req, res) => {
       score: result.score,
       total: result.total,
       correctCount: result.score,
+      percentage: result.percentage,
+      mastered: result.mastered,
+      masteredTopics: result.masteredTopics,
     })
   } catch (error) {
     return handleError(res, error)

@@ -81,12 +81,12 @@ export default function StudentDashboard() {
   const [refreshingQuestions, setRefreshingQuestions] = useState(false)
   const [expandedSources, setExpandedSources] = useState({})
   const [imageMode, setImageMode] = useState('none')
-  const [model, setModel] = useState('openai/gpt-oss-20b')
+  const [model, setModel] = useState('qwen/qwen3.8-27b')
   const [provider, setProvider] = useState('groq')
   const [cloudModels, setCloudModels] = useState([
-    { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (Default)', provider: 'groq' },
+    { id: 'qwen/qwen3.8-27b', name: 'Qwen 3.8 27B (Default)', provider: 'groq' },
     { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'groq' },
-    { id: 'qwen/qwen3.8-27b', name: 'Qwen 3.8 27B', provider: 'groq' },
+    { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B', provider: 'groq' },
   ])
   const [localModels, setLocalModels] = useState([
     { id: 'llama3.2:3b', name: 'llama3.2:3b', provider: 'local' },

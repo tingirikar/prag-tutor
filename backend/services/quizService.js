@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import QuizAttempt from '../models/QuizAttempt.js'
 import QuizSet from '../models/QuizSet.js'
 import QuizState from '../models/QuizState.js'
+import TopicMastery, { normalizeTopicName } from '../models/TopicMastery.js'
 
 /**
  * Normalizes difficulty level string and provides pedagogical focus guidelines.
@@ -305,7 +306,7 @@ export async function generateQuizQuestions(explanation, level = 'beginner', que
 }
 
 /**
- * 2. createQuizSet({ studentUsername, subject, conversationId, query, explanation, level })
+ * 2. createQuizSet({ studentUsername, subject, conversationId, query, explanation, level, topic })
  * Generates exactly 6 MCQs tailored to the user's selected difficulty level
  * and saves one QuizSet with initial status 'pending'.
  */
@@ -316,6 +317,7 @@ export async function createQuizSet({
   query,
   explanation,
   level = 'beginner',
+  topic = '',
 }) {
   if (!conversationId) {
     throw new Error('conversationId is required for createQuizSet.')
@@ -337,11 +339,12 @@ export async function createQuizSet({
     query,
     explanation,
     level: String(level || 'beginner'),
+    topic: String(topic || '').trim(),
     questions,
     status: 'pending',
   })
 
-  console.log(`[QUIZ SET CREATED] id=${quizSet._id} student=${studentUsername} subject=${subject} level=${level} questions=6`)
+  console.log(`[QUIZ SET CREATED] id=${quizSet._id} student=${studentUsername} subject=${subject} topic="${topic}" level=${level} questions=6`)
   return quizSet
 }
 
@@ -582,10 +585,33 @@ export async function completeQuiz({
     completedAt: new Date(),
   })
 
+  // 4. Learner Model: Evaluate topic mastery (> 50% score)
+  const percentage = total > 0 ? (score / total) * 100 : 0
+  const masteredTopics = []
+
+  if (percentage > 50) {
+    for (const qs of quizSets) {
+      const topicToRecord = qs.topic || qs.query || ''
+      if (topicToRecord) {
+        const masteryDoc = await recordTopicMastery({
+          studentUsername,
+          subject,
+          topic: topicToRecord,
+          score,
+          total,
+        })
+        if (masteryDoc) {
+          masteredTopics.push(masteryDoc.topic)
+        }
+      }
+    }
+  }
+
   console.log(
     `[QUIZ COMPLETED]\n` +
     `  student=${studentUsername} subject=${subject}\n` +
-    `  score=${score}/${total}\n` +
+    `  score=${score}/${total} (${percentage.toFixed(1)}%)\n` +
+    `  masteredTopics=${masteredTopics.join(', ') || 'none'}\n` +
     `  completedQuizSets=${quizSets.length}\n` +
     `  remainingPending=${state.pendingQuizSetIds.length}\n` +
     `  skipCountReset=0`
@@ -597,7 +623,66 @@ export async function completeQuiz({
     score,
     total,
     correctCount: score,
+    percentage,
+    mastered: percentage > 50,
+    masteredTopics,
   }
+}
+
+/**
+ * 10. recordTopicMastery({ studentUsername, subject, topic, score, total })
+ * Records permanent mastery of a topic in MongoDB once the student passes (> 50%).
+ */
+export async function recordTopicMastery({ studentUsername, subject, topic, score, total }) {
+  if (!topic || !studentUsername || !subject) return null
+  const normalizedTopic = normalizeTopicName(topic)
+  if (!normalizedTopic) return null
+
+  const existing = await TopicMastery.findOne({
+    studentUsername,
+    subject,
+    normalizedTopic,
+  })
+
+  if (existing) {
+    if (score > existing.bestScore) {
+      existing.bestScore = score
+      existing.total = total
+    }
+    existing.lastAssessedAt = new Date()
+    await existing.save()
+    return existing
+  }
+
+  const created = await TopicMastery.create({
+    studentUsername,
+    subject,
+    topic: topic.trim(),
+    normalizedTopic,
+    mastered: true,
+    bestScore: score,
+    total,
+    firstMasteredAt: new Date(),
+    lastAssessedAt: new Date(),
+  })
+
+  console.log(`[LEARNER MODEL] Student ${studentUsername} mastered topic "${topic}" (${normalizedTopic}) score=${score}/${total}`)
+  return created
+}
+
+/**
+ * 11. getMasteredTopics(studentUsername, subject)
+ * Retrieves list of all permanently mastered topics for a student in a subject.
+ */
+export async function getMasteredTopics(studentUsername, subject) {
+  if (!studentUsername || !subject) return []
+  const records = await TopicMastery.find({
+    studentUsername,
+    subject,
+    mastered: true,
+  }).lean()
+
+  return records.map((r) => r.topic)
 }
 
 export default {
@@ -610,5 +695,7 @@ export default {
   getConversationQuizStatus,
   buildQuiz,
   completeQuiz,
+  recordTopicMastery,
+  getMasteredTopics,
 }
 

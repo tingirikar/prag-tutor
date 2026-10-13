@@ -58,6 +58,10 @@ const quizSetSchema = new mongoose.Schema({
     type: String,
     default: 'beginner',
   },
+  topic: {
+    type: String,
+    default: '',
+  },
   questions: {
     type: [questionSchema],
     required: true,

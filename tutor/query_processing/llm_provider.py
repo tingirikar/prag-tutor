@@ -15,7 +15,12 @@ def generate_local_response(
     try:
         response = requests.post(
             f"{ollama_url}/api/chat",
-            json={"model": model_name, "messages": messages, "stream": False},
+            json={
+                "model": model_name,
+                "messages": messages,
+                "stream": False,
+                "options": {"num_predict": 2500},
+            },
             timeout=(5, 120),
         )
         if response.status_code == 404:
@@ -86,7 +91,7 @@ def call_llm_response(
             response = groq_client.chat.completions.create(
                 model=model,
                 messages=messages,
-                max_tokens=900,
+                max_tokens=2500,
             )
             raw_content = response.choices[0].message.content or ""
             if not raw_content and getattr(

@@ -199,34 +199,38 @@ def identify_topic_from_rag(
     user_question: Optional[str] = None,
     subject: Optional[str] = None,
 ) -> Optional[str]:
-    """5-layer topic identification strategy:
+    """Robust topic identification strategy:
 
     1. Exact phrase / substring in user question
-    2. Token overlap score with stemming in user question
-    3. Explicit metadata attached to retrieved matches
-    4. Exact phrase match against retrieved sentence context
-    5. Token overlap on retrieved sentence context
+    2. Stemmed token overlap in user question (handles singular/plural like 'heaps' -> 'Min Heaps')
+    3. Explicit metadata attached to retrieved matches (verified for query relevance)
+    4. Query-grounded context match across retrieved sentence chunks (rejects unrelated topics)
+    5. Fallback clean topic extracted from the user question itself
     """
     subj_prereqs = get_prerequisites_for_subject(subject)
     if not subj_prereqs:
         return None
 
     sorted_topics = sorted(subj_prereqs.keys(), key=lambda x: len(x), reverse=True)
+    q_lower = (user_question or "").lower()
 
-    # 1. Exact phrase / contiguous substring in user question
+    # Extract user content words (stemmed)
+    q_words = {
+        stem(w)
+        for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_lower)
+        if stem(w) not in STOP_WORDS
+    }
+
+    # 1. Exact phrase / substring in user question
     if user_question:
-        q_lower = user_question.lower()
         for t in sorted_topics:
             pattern = r"\b" + re.escape(t.lower()) + r"\b"
             if re.search(pattern, q_lower) or t.lower() in q_lower:
                 return t
 
         # 2. Token overlap score with stemming in user question
-        q_words = {
-            stem(w)
-            for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_lower)
-            if stem(w) not in STOP_WORDS
-        }
+        # Allow 1-word matches if q_words has 1-2 words (e.g. 'heaps', 'stacks', 'trees')
+        min_matched = 1 if len(q_words) <= 2 else 2
         best_topic = None
         best_score = 0.0
 
@@ -236,15 +240,13 @@ def identify_topic_from_rag(
             if not t_words:
                 continue
             matched = [w for w in t_words if w in q_words]
-            if len(matched) >= 2:
-                score = (len(matched) / len(t_words)) * (
-                    1.0 + 0.15 * len(matched)
-                )
+            if len(matched) >= min_matched:
+                score = (len(matched) / len(t_words)) * (1.0 + 0.2 * len(matched))
                 if score > best_score:
                     best_score = score
                     best_topic = t
 
-        if best_topic and best_score >= 0.45:
+        if best_topic and best_score >= 0.40:
             return best_topic
 
     # 3. Explicit metadata attached to retrieved matches
@@ -262,29 +264,21 @@ def identify_topic_from_rag(
                 != subject.strip().upper()
             ):
                 continue
-            if meta.get("topic") and str(meta["topic"]).strip() in subj_prereqs:
-                return str(meta["topic"]).strip()
-            if meta.get("title") and str(meta["title"]).strip() in subj_prereqs:
-                return str(meta["title"]).strip()
+            for field in ["topic", "title"]:
+                val = str(meta.get(field, "")).strip()
+                if val in subj_prereqs:
+                    # Guard: If query has keywords, require overlap with query
+                    if not q_words or any(
+                        stem(w) in q_words
+                        for w in re.findall(r"\b[a-zA-Z]{3,}\b", val.lower())
+                    ):
+                        return val
 
-    # 4. Exact phrase match against retrieved sentence context
-    for match in matches:
-        meta = (
-            match.get("metadata", {})
-            if isinstance(match, dict)
-            else getattr(match, "metadata", {})
-        )
-        sentence = (
-            meta.get("sentence", "") if isinstance(meta, dict) else ""
-        ).lower()
-        for t in sorted_topics:
-            pattern = r"\b" + re.escape(t.lower()) + r"\b"
-            if re.search(pattern, sentence) or t.lower() in sentence:
-                return t
+    # 4. Context match: MUST have lexical overlap with user query content words
+    # Prevents tangential chunks (e.g. memory management) from hijacking heap questions
+    best_context_topic = None
+    best_context_score = 0.0
 
-    # 5. Token overlap on retrieved sentence context
-    best_sentence_topic = None
-    best_sentence_score = 0.0
     for match in matches:
         meta = (
             match.get("metadata", {})
@@ -299,22 +293,37 @@ def identify_topic_from_rag(
             for w in re.findall(r"\b[a-zA-Z]{3,}\b", sentence)
             if stem(w) not in STOP_WORDS
         }
+
         for t in sorted_topics:
             t_raw = re.findall(r"\b[a-zA-Z]{3,}\b", t.lower())
             t_words = [stem(w) for w in t_raw if stem(w) not in STOP_WORDS]
             if not t_words:
                 continue
-            matched = [w for w in t_words if w in s_words]
-            if len(matched) >= 2:
-                score = (len(matched) / len(t_words)) * (
-                    1.0 + 0.15 * len(matched)
-                )
-                if score > best_sentence_score:
-                    best_sentence_score = score
-                    best_sentence_topic = t
 
-    if best_sentence_topic and best_sentence_score >= 0.45:
-        return best_sentence_topic
+            # CRITICAL GUARD: Topic MUST overlap with user query keywords if query has keywords
+            if q_words and not any(w in q_words for w in t_words):
+                continue
+
+            matched = [w for w in t_words if w in s_words]
+            if len(matched) >= 1:
+                score = len(matched) / len(t_words)
+                if score > best_context_score:
+                    best_context_score = score
+                    best_context_topic = t
+
+    if best_context_topic and best_context_score >= 0.40:
+        return best_context_topic
+
+    # 5. Fallback clean topic extracted from the user question itself
+    if user_question:
+        clean_topic = re.sub(
+            r"^(explain|what is|how do|tell me about|describe|define)\s+",
+            "",
+            q_lower,
+            flags=re.IGNORECASE,
+        ).strip()
+        if clean_topic and len(clean_topic) >= 3:
+            return clean_topic.title()
 
     return None
 

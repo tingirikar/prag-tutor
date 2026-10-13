@@ -164,32 +164,8 @@ export default function StudentDashboard() {
     }
   }
 
-  // Check whether student owes a compulsory quiz in current subject
-  const checkPendingQuizStatus = async (subjectCode) => {
-    const studentUser = JSON.parse(sessionStorage.getItem('user') || '{}')
-    const username = studentUser.username || 'student'
-    try {
-      const res = await apiFetch(`/api/quiz/status?studentUsername=${encodeURIComponent(username)}&subject=${encodeURIComponent(subjectCode)}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.compulsory && Array.isArray(data.questions) && data.questions.length > 0) {
-          setActiveQuiz({
-            quizSetId: null,
-            quizSetIds: data.quizSetIds || [],
-            questions: data.questions,
-            total: data.total || data.questions.length,
-            compulsory: true,
-            conversationId: null,
-          })
-          setQuizMode('active')
-          return true
-        }
-      }
-    } catch (e) {
-      console.warn('Could not check pending quiz status:', e)
-    }
-    return false
-  }
+  // Quizzes are strictly optional: never block or force compulsory mode
+  const checkPendingQuizStatus = async () => false
 
   // Handle selecting a subject from the hub
   const selectSubject = async (subj) => {
@@ -445,18 +421,8 @@ export default function StudentDashboard() {
         setQueryCount(data.query_count)
       }
 
-      // Handle quiz generation response:
-      if (data.quiz?.compulsory && data.quiz.questions?.length > 0) {
-        setActiveQuiz({
-          quizSetId: data.quiz.quizSetId,
-          quizSetIds: data.quiz.quizSetIds || [],
-          questions: data.quiz.questions,
-          total: data.quiz.total || data.quiz.questions.length,
-          compulsory: true,
-          conversationId: data.conversationId || currentConversationId,
-        })
-        setQuizMode('active')
-      } else if (data.quiz?.available && data.quiz.quizSetId) {
+      // Handle quiz generation response: quizzes are strictly optional
+      if (data.quiz?.available && data.quiz.quizSetId) {
         setActiveQuiz({
           quizSetId: data.quiz.quizSetId,
           quizSetIds: data.quiz.quizSetIds || [],
@@ -841,12 +807,8 @@ export default function StudentDashboard() {
               input={input}
               setInput={setInput}
               onSubmit={sendMessage}
-              loading={loading || (quizMode === 'active' && activeQuiz?.compulsory)}
-              placeholder={
-                quizMode === 'active' && activeQuiz?.compulsory
-                  ? 'Compulsory quiz in progress — complete the quiz above to continue chatting...'
-                  : `Ask a question about ${selectedSubject.name}...`
-              }
+              loading={loading}
+              placeholder={`Ask a question about ${selectedSubject.name}...`}
               level={level}
               levelLabel={currentLevelLabel}
               levelOptions={levelOptions}

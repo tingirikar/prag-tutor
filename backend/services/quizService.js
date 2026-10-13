@@ -353,24 +353,19 @@ export async function getPendingQuizSets(studentUsername, subject) {
 
 /**
  * 6. shouldForceQuiz(studentUsername, subject)
- * Returns true if the student has skipped 2 or more QuizSets.
+ * Quizzes are strictly optional; students can decline any number of times.
  */
 export async function shouldForceQuiz(studentUsername, subject) {
-  const state = await getQuizState(studentUsername, subject)
-  return Boolean(state && (state.skipCount || 0) >= 2)
+  return false
 }
 
 /**
  * 7. getConversationQuizStatus(studentUsername, subject, currentQuizSet)
- * Evaluates whether a quiz is compulsory (skipCount >= 2),
- * and gathers questions authoritatively.
- *
- * Compulsory quiz combines:
- * pendingQuizSetIds for current student+subject + current QuizSet.
+ * Quizzes are strictly optional. Returns active questions without forcing compulsory state.
  */
 export async function getConversationQuizStatus(studentUsername, subject, currentQuizSet = null) {
   const state = await getQuizState(studentUsername, subject)
-  const compulsory = (state?.skipCount || 0) >= 2
+  const compulsory = false
 
   const pendingSets = await getPendingQuizSets(studentUsername, subject)
 

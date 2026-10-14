@@ -9,7 +9,7 @@ export function isMongoReady() {
 
 export async function connectDB() {
   const configuredMongoUri = process.env.MONGODB_URI
-  const localMongoUri = 'mongodb://127.0.0.1:27017/lpi_tutor'
+  const localMongoUri = 'mongodb://127.0.0.1:27017/prag-tutor'
 
   if (configuredMongoUri) {
     try {

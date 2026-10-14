@@ -80,7 +80,7 @@ export default function StudentDashboard() {
   // Chat message & interaction state
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [level, setLevelState] = useState(() => localStorage.getItem('student_pref_level') || 'beginner')
+  const [level, setLevel] = useState(() => localStorage.getItem('student_pref_level') || 'beginner')
   const [loading, setLoading] = useState(false)
   const [sampleQuestions, setSampleQuestions] = useState([])
   const [refreshingQuestions, setRefreshingQuestions] = useState(false)

@@ -47,18 +47,18 @@ def get_db():
             try:
                 _mongo_db = _mongo_client.get_default_database()
             except Exception:
-                _mongo_db = _mongo_client["lpi_tutor"]
+                _mongo_db = _mongo_client["prag-tutor"]
             return _mongo_db
         except Exception as e:
             print(f"[Warning] Configured MongoDB connection failed: {e}. Falling back to local MongoDB...")
 
     # Fallback to local MongoDB (consistent with backend/config/db.js)
     try:
-        local_client = pymongo.MongoClient("mongodb://127.0.0.1:27017/lpi_tutor", serverSelectionTimeoutMS=3000)
+        local_client = pymongo.MongoClient("mongodb://127.0.0.1:27017/prag-tutor", serverSelectionTimeoutMS=3000)
         local_client.admin.command('ping')
         _mongo_client = local_client
-        _mongo_db = local_client["lpi_tutor"]
-        print("Connected successfully to local MongoDB (lpi_tutor).")
+        _mongo_db = local_client["prag-tutor"]
+        print("Connected successfully to local MongoDB (prag-tutor).")
         return _mongo_db
     except Exception as e:
         print(f"[Warning] Local MongoDB connection failed: {e}")

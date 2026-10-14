@@ -33,7 +33,7 @@ from tutor.schemas import (
     QueryRequest,
 )
 
-app = FastAPI(title="LPITutor Python RAG Service")
+app = FastAPI(title="prag-tutor Python RAG Service")
 
 # ── Service Pipeline Instances ─────────────────────────────────────────
 print("Initializing Python RAG service pipelines...")

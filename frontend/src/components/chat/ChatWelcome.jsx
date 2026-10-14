@@ -62,11 +62,19 @@ export default function ChatWelcome({ subject, refreshing, questions, onRefresh,
           <div className="mx-auto grid size-12 place-items-center rounded-xl bg-raised text-mute">
             <FolderOpen size={24} />
           </div>
-          <h4 className="mt-4 font-medium text-fg">No Course Materials Added Yet</h4>
+          <h4 className="mt-4 font-medium text-fg">Sample Questions Not Ready Yet</h4>
           <p className="mx-auto mt-2 max-w-md text-sm text-dim">
-            No source files or syllabus documents have been uploaded for <strong className="text-fg">{subject.name}</strong> yet.
-            Questions and grounded tutoring will appear once faculty adds course files.
+            Sample questions for <strong className="text-fg">{subject.name}</strong> could not be loaded right now. You can still ask any course question directly in the chat below, or retry loading questions.
           </p>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20 transition-colors"
+          >
+            <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Loading Questions...' : 'Load Sample Questions'}
+          </button>
         </div>
       )}
     </div>

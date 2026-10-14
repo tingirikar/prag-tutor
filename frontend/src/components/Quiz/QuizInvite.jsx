@@ -7,7 +7,7 @@ export default function QuizInvite({
   conversationId = null,
   studentUsername,
   subject,
-  total = 3,
+  total = 6,
   onYes,
   onNo,
 }) {

@@ -79,10 +79,17 @@ def call_llm_response(
         )
 
     # Cloud Groq branch
-    cloud_model = target_model or default_model
-    candidate_models = [cloud_model]
-    if default_model not in candidate_models:
+    groq_fallbacks = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    candidate_models = []
+    if target_model:
+        candidate_models.append(target_model)
+    if default_model and default_model not in candidate_models:
         candidate_models.append(default_model)
+    for fm in groq_fallbacks:
+        if fm not in candidate_models:
+            candidate_models.append(fm)
+
+    cloud_model = candidate_models[0] if candidate_models else "qwen/qwen3.8-27b"
 
     for model in candidate_models:
         try:
@@ -97,7 +104,7 @@ def call_llm_response(
             if not raw_content and getattr(
                 response.choices[0].message, "reasoning", None
             ):
-                raw_content = response.choices[0].message.reasoning
+                raw_content = response.choices[0].message.reasoning or ""
             cleaned = re.sub(
                 r"<think>.*?</think>", "", raw_content, flags=re.DOTALL
             )

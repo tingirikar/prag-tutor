@@ -16,6 +16,7 @@ class QueryRequest(BaseModel):
     image_mode: str = "notes"
     model: Optional[str] = None
     provider: Optional[str] = None
+    mastered_topics: List[str] = Field(default_factory=list)
 
 
 class ImageRequest(BaseModel):

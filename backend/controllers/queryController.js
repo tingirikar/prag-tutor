@@ -3,7 +3,7 @@ import Conversation from '../models/Conversation.js'
 import { isMongoReady } from '../config/db.js'
 import { callPython } from '../services/pythonService.js'
 import { isValidObjectId } from '../middleware/validation.js'
-import { createQuizSet, getConversationQuizStatus, shouldForceQuiz } from '../services/quizService.js'
+import { createQuizSet, getConversationQuizStatus, getMasteredTopics, shouldForceQuiz } from '../services/quizService.js'
 
 function isGenuineExplanation(result) {
   if (!result || typeof result !== 'object') return false
@@ -59,6 +59,9 @@ export async function handleQuery(request, response) {
   // Quizzes are completely optional: students can ask questions and say no any number of times.
 
   try {
+    // 0. Learner Model: Retrieve student's mastered topics for this subject
+    const masteredTopics = await getMasteredTopics(studentUsername, subject)
+
     // 1. Call Python RAG Backend
     const result = await callPython('/rag/query', {
       method: 'POST',
@@ -68,11 +71,12 @@ export async function handleQuery(request, response) {
         topic: topic || undefined,
         subject,
         level: request.body?.level || 'beginner',
-        model: request.body?.model || 'openai/gpt-oss-20b',
+        model: request.body?.model || 'qwen/qwen3.8-27b',
         provider: request.body?.provider || 'groq',
         history: request.body?.history || [],
         include_image: request.body?.include_image !== undefined ? Boolean(request.body.include_image) : true,
         image_mode: request.body?.image_mode || 'notes',
+        mastered_topics: masteredTopics,
       }),
       timeout: 180000, // 3 minute timeout for query processing
     })
@@ -137,12 +141,15 @@ export async function handleQuery(request, response) {
 
       if (isGenuine) {
         try {
+          const level = request.body?.level || 'beginner'
           currentQuizSet = await createQuizSet({
             studentUsername,
             subject,
             conversationId,
             query,
             explanation,
+            level,
+            topic: result.topic || topic || '',
           })
         } catch (quizError) {
           console.warn('[QUIZ ERROR] Generation failed:', quizError.message)

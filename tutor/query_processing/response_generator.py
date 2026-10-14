@@ -39,6 +39,43 @@ from tutor.query_processing.vector_search import (
 )
 from tutor.schemas import ResponseResult
 
+def normalize_topic_for_comparison(text: str) -> str:
+    """Normalizes topic text to allow robust comparison across variations."""
+    if not text:
+        return ""
+    cleaned = text.lower()
+    cleaned = re.sub(r"\b(in\s+c\+\+|in\s+python|in\s+java|for\s+dsa)\b", "", cleaned)
+    cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"s\b", "", cleaned)
+    return cleaned
+
+
+def is_prerequisite_mastered(prereq: str, mastered_topics: List[str]) -> bool:
+    """Checks whether a prerequisite topic has already been mastered by the student."""
+    if not prereq or not mastered_topics:
+        return False
+    norm_prereq = normalize_topic_for_comparison(prereq)
+    if not norm_prereq:
+        return False
+
+    for mastered in mastered_topics:
+        norm_mastered = normalize_topic_for_comparison(mastered)
+        if not norm_mastered:
+            continue
+        if norm_prereq == norm_mastered:
+            return True
+        if norm_prereq in norm_mastered or norm_mastered in norm_prereq:
+            return True
+        prereq_words = set(norm_prereq.split())
+        mastered_words = set(norm_mastered.split())
+        if prereq_words and prereq_words.issubset(mastered_words):
+            return True
+        if mastered_words and mastered_words.issubset(prereq_words):
+            return True
+
+    return False
+
 
 class ResponseGenerator:
     """Intelligent tutoring engine combining Pinecone RAG, prerequisite graphing, and multi-model LLM generation."""
@@ -284,23 +321,43 @@ class ResponseGenerator:
         provider: Optional[str] = None,
         subject: str = "",
         image_mode: str = "notes",
+        mastered_topics: Optional[List[str]] = None,
     ) -> ResponseResult:
-        # Step 1: Pinecone vector search isolated strictly to this subject namespace
+        # Step 1: Pinecone vector search isolated strictly to this subject namespace (filtered by min similarity threshold)
         matches = self.fetch_answer(
             query_embedding, top_k=5, subject=subject
         )
 
-        # Step 2: 5-layer topic identification
+        has_verified_context = bool(matches and len(matches) > 0)
+
+        # Step 2: Topic identification
         if not topic:
             topic = self.identify_topic_from_rag(
                 matches, user_question, subject=subject
             )
 
-        # Step 3: Retrieve prerequisites corresponding to that topic
+        # Step 3: Retrieve prerequisites strictly for verified course topics
+        # If the question is unrelated to the PDFs (no verified matches), do NOT assign any prerequisites
         if prerequisites is None:
-            prerequisites = self.get_prerequisites_for_topic(
-                topic, subject=subject
-            )
+            if has_verified_context and topic:
+                prerequisites = self.get_prerequisites_for_topic(
+                    topic, subject=subject
+                )
+            else:
+                prerequisites = []
+
+        # Step 3b: Learner Model filtering
+        # Filter out any prerequisites that the student has already mastered
+        if prerequisites and mastered_topics:
+            unmastered_prereqs = []
+            for p in prerequisites:
+                if is_prerequisite_mastered(p, mastered_topics):
+                    print(
+                        f"[LEARNER MODEL] Prerequisite '{p}' is already mastered by student. Skipping."
+                    )
+                else:
+                    unmastered_prereqs.append(p)
+            prerequisites = unmastered_prereqs
 
         # Step 4: Extract structured source citations
         sources = []
@@ -392,22 +449,26 @@ class ResponseGenerator:
             {"role": "user", "content": prompt},
         ]
 
-        # 1. Groq cloud
+        # 1. Groq cloud with multi-model fallback
         if self.groq_client:
-            try:
-                result = self.groq_client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    max_tokens=1200,
-                )
-                choice = result.choices[0]
-                content = choice.message.content or ""
-                parsed = self._parse_sample_questions(content)
-                if parsed:
-                    print("Sample questions generated via Groq.")
-                    return parsed
-            except Exception as error:
-                print(f"Notice generating sample questions via Groq: {error}")
+            groq_models = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+            for gm in groq_models:
+                try:
+                    result = self.groq_client.chat.completions.create(
+                        model=gm,
+                        messages=messages,
+                        max_tokens=1200,
+                    )
+                    choice = result.choices[0]
+                    content = choice.message.content or ""
+                    if not content and getattr(choice.message, "reasoning", None):
+                        content = choice.message.reasoning or ""
+                    parsed = self._parse_sample_questions(content)
+                    if parsed:
+                        print(f"Sample questions generated via Groq ({gm}).")
+                        return parsed
+                except Exception as error:
+                    print(f"Notice generating sample questions via Groq ({gm}): {error}")
 
         # 2. Local Ollama
         try:
@@ -431,9 +492,20 @@ class ResponseGenerator:
         except Exception as error:
             print(f"Notice generating sample questions via Ollama: {error}")
 
-        print(
-            "Warning: Both Groq and Ollama failed for sample questions. Returning empty list."
-        )
+        # 3. Deterministic syllabus fallback from course topics
+        fallback_questions = []
+        levels = ["beginner", "intermediate", "expert"]
+        for idx, top in enumerate(selected[:6]):
+            lvl = levels[idx % len(levels)]
+            fallback_questions.append({
+                "topic": top,
+                "question": f"Explain the core concepts, operations, and implementation of {top}.",
+                "level": lvl,
+            })
+        if fallback_questions:
+            print(f"Using {len(fallback_questions)} syllabus sample questions from course topics.")
+            return fallback_questions
+
         return []
 
     def _parse_sample_questions(

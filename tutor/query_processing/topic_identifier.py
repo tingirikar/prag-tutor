@@ -214,10 +214,10 @@ def identify_topic_from_rag(
     sorted_topics = sorted(subj_prereqs.keys(), key=lambda x: len(x), reverse=True)
     q_lower = (user_question or "").lower()
 
-    # Extract user content words (stemmed)
+    # Extract user content words (stemmed, including 2-letter acronyms like ml, ai, os, ip, db)
     q_words = {
         stem(w)
-        for w in re.findall(r"\b[a-zA-Z]{3,}\b", q_lower)
+        for w in re.findall(r"\b[a-zA-Z]{2,}\b", q_lower)
         if stem(w) not in STOP_WORDS
     }
 
@@ -235,7 +235,7 @@ def identify_topic_from_rag(
         best_score = 0.0
 
         for t in sorted_topics:
-            t_raw = re.findall(r"\b[a-zA-Z]{3,}\b", t.lower())
+            t_raw = re.findall(r"\b[a-zA-Z]{2,}\b", t.lower())
             t_words = [stem(w) for w in t_raw if stem(w) not in STOP_WORDS]
             if not t_words:
                 continue
@@ -249,67 +249,68 @@ def identify_topic_from_rag(
         if best_topic and best_score >= 0.40:
             return best_topic
 
-    # 3. Explicit metadata attached to retrieved matches
-    for match in matches:
-        meta = (
-            match.get("metadata", {})
-            if isinstance(match, dict)
-            else getattr(match, "metadata", {})
-        )
-        if isinstance(meta, dict):
-            if (
-                subject
-                and meta.get("subject")
-                and str(meta["subject"]).strip().upper()
-                != subject.strip().upper()
-            ):
-                continue
-            for field in ["topic", "title"]:
-                val = str(meta.get(field, "")).strip()
-                if val in subj_prereqs:
-                    # Guard: If query has keywords, require overlap with query
-                    if not q_words or any(
-                        stem(w) in q_words
-                        for w in re.findall(r"\b[a-zA-Z]{3,}\b", val.lower())
-                    ):
-                        return val
+    # 3. Explicit metadata attached to retrieved matches (verified for query relevance)
+    if matches and q_words:
+        for match in matches:
+            meta = (
+                match.get("metadata", {})
+                if isinstance(match, dict)
+                else getattr(match, "metadata", {})
+            )
+            if isinstance(meta, dict):
+                if (
+                    subject
+                    and meta.get("subject")
+                    and str(meta["subject"]).strip().upper()
+                    != subject.strip().upper()
+                ):
+                    continue
+                for field in ["topic", "title"]:
+                    val = str(meta.get(field, "")).strip()
+                    if val in subj_prereqs:
+                        # Guard: Require overlap with query keywords
+                        if any(
+                            stem(w) in q_words
+                            for w in re.findall(r"\b[a-zA-Z]{2,}\b", val.lower())
+                        ):
+                            return val
 
-    # 4. Context match: MUST have lexical overlap with user query content words
-    # Prevents tangential chunks (e.g. memory management) from hijacking heap questions
+    # 4. Context match: ONLY consider if matches exist AND has lexical overlap with user query keywords
     best_context_topic = None
     best_context_score = 0.0
 
-    for match in matches:
-        meta = (
-            match.get("metadata", {})
-            if isinstance(match, dict)
-            else getattr(match, "metadata", {})
-        )
-        sentence = (
-            meta.get("sentence", "") if isinstance(meta, dict) else ""
-        ).lower()
-        s_words = {
-            stem(w)
-            for w in re.findall(r"\b[a-zA-Z]{3,}\b", sentence)
-            if stem(w) not in STOP_WORDS
-        }
+    if matches and q_words:
+        for match in matches:
+            meta = (
+                match.get("metadata", {})
+                if isinstance(match, dict)
+                else getattr(match, "metadata", {})
+            )
+            sentence = (
+                meta.get("sentence", "") if isinstance(meta, dict) else ""
+            ).lower()
+            s_words = {
+                stem(w)
+                for w in re.findall(r"\b[a-zA-Z]{2,}\b", sentence)
+                if stem(w) not in STOP_WORDS
+            }
 
-        for t in sorted_topics:
-            t_raw = re.findall(r"\b[a-zA-Z]{3,}\b", t.lower())
-            t_words = [stem(w) for w in t_raw if stem(w) not in STOP_WORDS]
-            if not t_words:
-                continue
+            for t in sorted_topics:
+                t_raw = re.findall(r"\b[a-zA-Z]{2,}\b", t.lower())
+                t_words = [stem(w) for w in t_raw if stem(w) not in STOP_WORDS]
+                if not t_words:
+                    continue
 
-            # CRITICAL GUARD: Topic MUST overlap with user query keywords if query has keywords
-            if q_words and not any(w in q_words for w in t_words):
-                continue
+                # CRITICAL GUARD: Topic MUST overlap with user query keywords
+                if not any(w in q_words for w in t_words):
+                    continue
 
-            matched = [w for w in t_words if w in s_words]
-            if len(matched) >= 1:
-                score = len(matched) / len(t_words)
-                if score > best_context_score:
-                    best_context_score = score
-                    best_context_topic = t
+                matched = [w for w in t_words if w in s_words]
+                if len(matched) >= 1:
+                    score = len(matched) / len(t_words)
+                    if score > best_context_score:
+                        best_context_score = score
+                        best_context_topic = t
 
     if best_context_topic and best_context_score >= 0.40:
         return best_context_topic

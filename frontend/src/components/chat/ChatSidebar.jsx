@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, MessageSquare, SquarePen, Trash2 } from 'lucide-react'
+import { ArrowLeft, MessageSquare, SquarePen, Trash2, GraduationCap } from 'lucide-react'
 import SubjectIcon from '../ui/SubjectIcon'
 import UserFooter from '../layout/UserFooter'
 
@@ -8,6 +8,7 @@ export default function ChatSidebar({
   subject, conversations, currentConversationId, deletingConvId,
   onBack, onNewChat, onLoad, onAskDelete, onConfirmDelete, onCancelDelete,
   user, onLogout, close,
+  activeView = 'chat', onViewChange,
 }) {
   const [anchor, setAnchor] = useState(null)
   const target = conversations.find(c => c._id === deletingConvId)
@@ -48,13 +49,40 @@ export default function ChatSidebar({
 
         <button
           type="button"
-          onClick={() => { onNewChat(); close() }}
+          onClick={() => { onNewChat(); onViewChange?.('chat'); close() }}
           className="press group flex w-full items-center gap-2.5 rounded-xl bg-accent px-3.5 py-2.5 text-sm font-semibold text-white shadow-[0_10px_28px_-12px_#7b93ff] transition-all hover:brightness-110"
         >
           <SquarePen size={16} className="transition-transform duration-300 group-hover:-rotate-12" />
           <span>New Chat</span>
           <kbd className="ml-auto rounded-md bg-white/15 px-1.5 py-0.5 font-mono text-[10px] text-white/80">⌘K</kbd>
         </button>
+
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-line bg-panel p-1">
+          <button
+            type="button"
+            onClick={() => { onViewChange?.('chat'); close() }}
+            className={`flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition ${
+              activeView === 'chat'
+                ? 'bg-accent-soft text-accent font-semibold shadow-2xs'
+                : 'text-dim hover:text-fg'
+            }`}
+          >
+            <MessageSquare size={13} />
+            <span>Chat</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { onViewChange?.('mastery'); close() }}
+            className={`flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition ${
+              activeView === 'mastery'
+                ? 'bg-accent-soft text-accent font-semibold shadow-2xs'
+                : 'text-dim hover:text-fg'
+            }`}
+          >
+            <GraduationCap size={13} />
+            <span>Mastery</span>
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 scroll-thin">

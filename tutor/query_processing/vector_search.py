@@ -105,8 +105,9 @@ def fetch_answer(
     top_k: int = 5,
     subject: Optional[str] = None,
     documents_dir: Optional[str] = None,
+    min_score: float = 0.45,
 ) -> List[Any]:
-    """Queries Pinecone for semantic chunks isolated by subject namespace."""
+    """Queries Pinecone for semantic chunks isolated by subject namespace and filters by minimum relevance threshold."""
     if index is None:
         return []
 
@@ -128,12 +129,13 @@ def fetch_answer(
         print(f"[Warning] Pinecone query in namespace '{subj_key}' failed: {err}")
         return []
 
-    # Filter matches that contain real text and strictly belong to this subject
+    # Filter matches that meet the minimum relevance threshold, contain text, and belong to this subject
     matches = results.get("matches", [])
     valid_matches = [
         m
         for m in matches
-        if len((m.get("metadata", {}).get("sentence") or "").strip()) > 5
+        if float(m.get("score") if isinstance(m, dict) else getattr(m, "score", 0.0) or 0.0) >= min_score
+        and len((m.get("metadata", {}).get("sentence") or "").strip()) > 5
         and is_active_document(
             m.get("metadata", {}).get("document"),
             subject=subj_key,

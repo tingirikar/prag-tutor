@@ -4,6 +4,7 @@ import QuizAttempt from '../models/QuizAttempt.js'
 import QuizSet from '../models/QuizSet.js'
 import QuizState from '../models/QuizState.js'
 import TopicMastery, { normalizeTopicName } from '../models/TopicMastery.js'
+import Prerequisite from '../models/Prerequisite.js'
 
 /**
  * Normalizes difficulty level string and provides pedagogical focus guidelines.
@@ -685,6 +686,108 @@ export async function getMasteredTopics(studentUsername, subject) {
   return records.map((r) => r.topic)
 }
 
+/**
+ * 12. getStudentMasteryDetails({ studentUsername, subject })
+ * Fetches comprehensive topic mastery data for a student, merging
+ * mastered records with curriculum topics from Prerequisites.
+ */
+export async function getStudentMasteryDetails({ studentUsername, subject }) {
+  if (!studentUsername) {
+    return {
+      masteredTopics: [],
+      remainingTopics: [],
+      allTopics: [],
+      stats: { totalTopics: 0, masteredCount: 0, remainingCount: 0, progressPercentage: 0, averageScore: 0 },
+    }
+  }
+
+  const masteryFilter = { studentUsername, mastered: true }
+  if (subject) {
+    masteryFilter.subject = subject.trim().toUpperCase()
+  }
+
+  const masteryRecords = await TopicMastery.find(masteryFilter)
+    .sort({ lastAssessedAt: -1 })
+    .lean()
+
+  const normalizedMasteryMap = new Map()
+  for (const m of (masteryRecords || [])) {
+    const key = `${m.subject || ''}:::${m.normalizedTopic}`
+    normalizedMasteryMap.set(key, m)
+  }
+
+  // Fetch curriculum/syllabus topics from Prerequisite collection
+  const prereqFilter = subject ? { subject: subject.trim().toUpperCase() } : {}
+  const prereqRecords = await Prerequisite.find(prereqFilter).sort({ topic: 1 }).lean()
+
+  const topicMap = new Map()
+
+  // 1. Add all syllabus topics from Prerequisite
+  for (const p of (prereqRecords || [])) {
+    const norm = normalizeTopicName(p.topic)
+    const key = `${p.subject || ''}:::${norm}`
+    const mastery = normalizedMasteryMap.get(key)
+
+    topicMap.set(key, {
+      subject: p.subject,
+      topic: p.topic,
+      normalizedTopic: norm,
+      prerequisites: p.prerequisites || [],
+      isMastered: Boolean(mastery),
+      bestScore: mastery ? mastery.bestScore : 0,
+      total: mastery ? mastery.total : 0,
+      percentage: mastery && mastery.total > 0 ? Math.round((mastery.bestScore / mastery.total) * 100) : 0,
+      firstMasteredAt: mastery?.firstMasteredAt || null,
+      lastAssessedAt: mastery?.lastAssessedAt || null,
+    })
+  }
+
+  // 2. Also ensure any topics mastered by the student (even if not explicitly in Prerequisite table) are included
+  for (const m of (masteryRecords || [])) {
+    const key = `${m.subject || ''}:::${m.normalizedTopic}`
+    if (!topicMap.has(key)) {
+      topicMap.set(key, {
+        subject: m.subject,
+        topic: m.topic,
+        normalizedTopic: m.normalizedTopic,
+        prerequisites: [],
+        isMastered: true,
+        bestScore: m.bestScore,
+        total: m.total,
+        percentage: m.total > 0 ? Math.round((m.bestScore / m.total) * 100) : 0,
+        firstMasteredAt: m.firstMasteredAt || null,
+        lastAssessedAt: m.lastAssessedAt || null,
+      })
+    }
+  }
+
+  const allTopics = Array.from(topicMap.values())
+  const completedTopics = allTopics.filter(t => t.isMastered)
+  const remainingTopics = allTopics.filter(t => !t.isMastered)
+
+  const totalTopics = allTopics.length
+  const masteredCount = completedTopics.length
+  const progressPercentage = totalTopics > 0 ? Math.round((masteredCount / totalTopics) * 100) : 0
+
+  const totalScorePct = completedTopics.reduce((acc, t) => acc + (t.percentage || 0), 0)
+  const averageScore = masteredCount > 0 ? Math.round(totalScorePct / masteredCount) : 0
+
+  return {
+    subject: subject || null,
+    studentUsername,
+    stats: {
+      totalTopics,
+      masteredCount,
+      remainingCount: remainingTopics.length,
+      progressPercentage,
+      averageScore,
+    },
+    masteredTopics: completedTopics,
+    remainingTopics,
+    allTopics,
+  }
+}
+
 export default {
   generateQuizQuestions,
   createQuizSet,
@@ -697,5 +800,6 @@ export default {
   completeQuiz,
   recordTopicMastery,
   getMasteredTopics,
+  getStudentMasteryDetails,
 }
 

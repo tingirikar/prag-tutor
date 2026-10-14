@@ -8,6 +8,7 @@ import {
   getPendingQuizSets,
   recordQuizSkip,
   shouldForceQuiz,
+  getStudentMasteryDetails,
 } from '../services/quizService.js'
 
 const router = express.Router()
@@ -287,6 +288,34 @@ router.post('/submit', async (req, res) => {
       percentage: result.percentage,
       mastered: result.mastered,
       masteredTopics: result.masteredTopics,
+    })
+  } catch (error) {
+    return handleError(res, error)
+  }
+})
+
+/**
+ * 7. GET /mastery
+ * Returns comprehensive topic mastery details and statistics for a student,
+ * comparing against known syllabus topics in Prerequisites.
+ */
+router.get('/mastery', async (req, res) => {
+  try {
+    const rawUsername = req.query.studentUsername || req.body?.studentUsername
+    const subject = req.query.subject ? String(req.query.subject).trim().toUpperCase() : undefined
+
+    if (!checkStudentAccess(req, res, rawUsername, subject)) return
+
+    const studentUsername = req.user?.role === 'student' ? req.user.username : (rawUsername || req.user.username)
+
+    if (!studentUsername) {
+      return res.status(400).json({ error: 'studentUsername is required.' })
+    }
+
+    const details = await getStudentMasteryDetails({ studentUsername, subject })
+    return res.status(200).json({
+      success: true,
+      ...details,
     })
   } catch (error) {
     return handleError(res, error)

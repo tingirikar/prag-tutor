@@ -15,8 +15,9 @@ import Lightbox from '../components/chat/Lightbox'
 import Quiz from '../components/Quiz/Quiz'
 import QuizInvite from '../components/Quiz/QuizInvite'
 import QuizResult from '../components/Quiz/QuizResult'
+import TopicMasteryPanel from '../components/student/TopicMasteryPanel'
 import { apiFetch } from '../api'
-import { ArrowUpRight, LayoutGrid, RefreshCw } from 'lucide-react'
+import { ArrowUpRight, LayoutGrid, RefreshCw, GraduationCap, MessageSquare } from 'lucide-react'
 
 export default function StudentDashboard() {
   const navigate = useNavigate()
@@ -66,6 +67,8 @@ export default function StudentDashboard() {
     }
   ])
   const [selectedSubject, setSelectedSubject] = useState(null)
+  const [mainTab, setMainTab] = useState('hub') // 'hub' | 'mastery'
+  const [subjectViewMode, setSubjectViewMode] = useState('chat') // 'chat' | 'mastery'
 
   // Conversations state (MongoDB chat history)
   const [conversations, setConversations] = useState([])
@@ -170,6 +173,7 @@ export default function StudentDashboard() {
   // Handle selecting a subject from the hub
   const selectSubject = async (subj) => {
     setSelectedSubject(subj)
+    setSubjectViewMode('chat')
     setCurrentConversationId(null)
     setMessages([])
     setInput('')
@@ -186,6 +190,7 @@ export default function StudentDashboard() {
   // Return to the Subject Hub Dashboard
   const backToSubjects = () => {
     setSelectedSubject(null)
+    setSubjectViewMode('chat')
     setCurrentConversationId(null)
     setMessages([])
     setInput('')
@@ -193,6 +198,25 @@ export default function StudentDashboard() {
     setActiveQuiz(null)
     setQuizResult(null)
     setQueryCount(0)
+  }
+
+  // Launch a chat directly from a topic in Topic Mastery view
+  const handleStudyTopicFromMastery = (promptText, subjectObj) => {
+    if (subjectObj) {
+      setSelectedSubject(subjectObj)
+      fetchSampleQuestions(subjectObj.code)
+      fetchConversations(subjectObj.code)
+    }
+    setMainTab('hub')
+    setSubjectViewMode('chat')
+    setInput(promptText)
+    requestAnimationFrame(() => {
+      const el = document.getElementById('chat-composer')
+      if (el) {
+        el.focus()
+        el.setSelectionRange(el.value.length, el.value.length)
+      }
+    })
   }
 
   // Load a saved conversation from MongoDB
@@ -534,7 +558,8 @@ export default function StudentDashboard() {
             <div className="p-4 pt-5"><Brand /></div>
             <nav className="flex-1 space-y-1 px-3 pt-4">
               <div className="px-3 pb-2 font-mono text-[10.5px] tracking-[0.16em] text-mute uppercase">Navigation</div>
-              <NavItem active icon={<LayoutGrid size={17} />} label="Subject Hub" onClick={close} />
+              <NavItem active={mainTab === 'hub'} icon={<LayoutGrid size={17} />} label="Subject Hub" onClick={() => { setMainTab('hub'); close() }} />
+              <NavItem active={mainTab === 'mastery'} icon={<GraduationCap size={17} />} label="Topic Mastery" onClick={() => { setMainTab('mastery'); close() }} />
             </nav>
             <UserFooter
               initial={currentUser.name?.charAt(0) || 'S'}
@@ -546,7 +571,17 @@ export default function StudentDashboard() {
           </>
         )}
       >
-        <SubjectHub user={currentUser} subjects={subjects} onSelect={selectSubject} />
+        {mainTab === 'hub' ? (
+          <SubjectHub user={currentUser} subjects={subjects} onSelect={selectSubject} />
+        ) : (
+          <div className="h-full overflow-y-auto scroll-thin">
+            <TopicMasteryPanel
+              user={currentUser}
+              subjects={subjects}
+              onStudyTopic={handleStudyTopicFromMastery}
+            />
+          </div>
+        )}
       </AppShell>
     )
   }
@@ -617,7 +652,9 @@ export default function StudentDashboard() {
       mobileTitle={
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-accent"><SubjectIcon code={selectedSubject.code} size={16} /></span>
-          <span className="truncate text-sm font-medium">{selectedSubject.name}</span>
+          <span className="truncate text-sm font-medium">
+            {selectedSubject.name} {subjectViewMode === 'mastery' && '• Topics'}
+          </span>
         </div>
       }
       sidebar={(close) => (
@@ -629,12 +666,17 @@ export default function StudentDashboard() {
           deletingConvId={deletingConvId}
           onBack={backToSubjects}
           onNewChat={startNewChat}
-          onLoad={loadConversation}
+          onLoad={(id) => {
+            setSubjectViewMode('chat')
+            loadConversation(id)
+          }}
           onAskDelete={setDeletingConvId}
           onConfirmDelete={confirmDelete}
           onCancelDelete={cancelDelete}
           user={currentUser}
           onLogout={logout}
+          activeView={subjectViewMode}
+          onViewChange={setSubjectViewMode}
         />
       )}
     >
@@ -646,15 +688,58 @@ export default function StudentDashboard() {
             <span className="font-medium text-fg">{selectedSubject.name}</span>
             <span className="text-mute">/</span>
             <span className="truncate text-dim">
-              {conversations.find(c => c._id === currentConversationId)?.title || 'New Chat'}
+              {subjectViewMode === 'mastery'
+                ? 'Curriculum Mastery'
+                : (conversations.find(c => c._id === currentConversationId)?.title || 'New Chat')}
             </span>
           </div>
-          <span className="font-mono text-[11px] text-mute">{selectedSubject.teacherName || selectedSubject.teacherUsername}</span>
+
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 rounded-xl border border-line bg-panel p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => setSubjectViewMode('chat')}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 font-medium transition ${
+                  subjectViewMode === 'chat'
+                    ? 'bg-accent text-white font-semibold shadow-2xs'
+                    : 'text-dim hover:text-fg'
+                }`}
+              >
+                <MessageSquare size={13} />
+                <span>Tutor Chat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubjectViewMode('mastery')}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 font-medium transition ${
+                  subjectViewMode === 'mastery'
+                    ? 'bg-accent text-white font-semibold shadow-2xs'
+                    : 'text-dim hover:text-accent'
+                }`}
+              >
+                <GraduationCap size={13} />
+                <span>Completed Topics</span>
+              </button>
+            </div>
+            <span className="font-mono text-[11px] text-mute">{selectedSubject.teacherName || selectedSubject.teacherUsername}</span>
+          </div>
         </div>
 
-        {/* Messages Feed */}
-        <div className="min-h-0 flex-1 overflow-y-auto scroll-none">
-          <div className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-6 px-4 py-6 sm:px-8">
+        {/* Main Content Area: either Mastery or Chat Feed + Composer */}
+        {subjectViewMode === 'mastery' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
+            <TopicMasteryPanel
+              user={currentUser}
+              subjects={subjects}
+              initialSubject={selectedSubject}
+              onStudyTopic={handleStudyTopicFromMastery}
+            />
+          </div>
+        ) : (
+          <>
+            {/* Messages Feed */}
+            <div className="min-h-0 flex-1 overflow-y-auto scroll-none">
+              <div className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-6 px-4 py-6 sm:px-8">
             {messages.length === 0 && !loading && (
               <ChatWelcome
                 subject={selectedSubject}
@@ -811,7 +896,9 @@ export default function StudentDashboard() {
             </p>
           </div>
         </div>
-      </div>
+      </>
+    )}
+  </div>
 
       <Lightbox
         image={lightboxImage}

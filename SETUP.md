@@ -71,3 +71,14 @@ in terminal-3 (Frontend - PORT 5173)
 cd frontend
 npm run dev
 ```
+
+# OR
+# Setup using .bat
+```
+cd assets
+.\setup.bat
+```
+to run the project
+```
+.\run.bat
+```

@@ -65,7 +65,8 @@ export default function StudentDashboard() {
       teacherUsername: 'os',
       teacherName: 'Prof. Linus (OS Faculty)'
     }
-  ])
+  ]
+  const [subjects, setSubjects] = useState(defaultSubjects)
   const [selectedSubject, setSelectedSubject] = useState(null)
   const [mainTab, setMainTab] = useState('hub') // 'hub' | 'mastery'
   const [subjectViewMode, setSubjectViewMode] = useState('chat') // 'chat' | 'mastery'

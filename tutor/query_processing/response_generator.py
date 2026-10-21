@@ -77,6 +77,154 @@ def is_prerequisite_mastered(prereq: str, mastered_topics: List[str]) -> bool:
     return False
 
 
+def extract_profile_field(item: Any, key: str, default: Any = None) -> Any:
+    """Safely extracts a field from a dict or Pydantic model."""
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def find_profile_match(
+    topic_name: str, learner_profile: Optional[List[Any]]
+) -> Optional[Any]:
+    """Matches a topic against learner_profile using case-insensitive normalized matching."""
+    if not topic_name or not learner_profile:
+        return None
+    norm_target = normalize_topic_for_comparison(topic_name)
+    if not norm_target:
+        return None
+
+    # 1. Exact match on normalized_topic or topic
+    for item in learner_profile:
+        item_norm = extract_profile_field(item, "normalized_topic")
+        item_topic = extract_profile_field(item, "topic") or ""
+        if item_norm and norm_target == normalize_topic_for_comparison(item_norm):
+            return item
+        if item_topic and norm_target == normalize_topic_for_comparison(item_topic):
+            return item
+
+    # 2. Substring or token-subset match
+    target_words = set(norm_target.split())
+    for item in learner_profile:
+        item_topic = extract_profile_field(item, "topic") or ""
+        item_norm = extract_profile_field(item, "normalized_topic") or normalize_topic_for_comparison(item_topic)
+        if norm_target in item_norm or item_norm in norm_target:
+            return item
+        item_words = set(item_norm.split())
+        if target_words and item_words and (target_words.issubset(item_words) or item_words.issubset(target_words)):
+            return item
+
+    return None
+
+
+def extract_learner_signals(
+    current_topic: Optional[str],
+    prerequisites: Optional[List[str]],
+    learner_profile: Optional[List[Any]],
+    mastered_topics: Optional[List[str]] = None,
+    prerequisite_weights: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
+    """Matches query topic and its prerequisites against learner_profile (or falls back to mastered_topics).
+
+    Extracts three structured signals:
+    - topic_mastery_summary: list of {topic, effective_mastery, mastered, needs_refresher}
+    - refresher_topics: topics where needs_refresher == True (prioritized by DAG criticality weight)
+    - relevant_misconceptions: unresolved active misconceptions
+    """
+    topic_mastery_summary: List[Dict[str, Any]] = []
+    refresher_topics: List[str] = []
+    relevant_misconceptions: List[str] = []
+    seen_misc: Set[str] = set()
+
+    candidate_topics: List[str] = []
+    if current_topic and current_topic.strip():
+        candidate_topics.append(current_topic.strip())
+    if prerequisites:
+        for p in prerequisites:
+            clean_p = (p or "").strip()
+            if clean_p and clean_p not in candidate_topics:
+                candidate_topics.append(clean_p)
+
+    has_profile = bool(learner_profile and len(learner_profile) > 0)
+    has_mastered = bool(mastered_topics and len(mastered_topics) > 0)
+
+    if not has_profile and not has_mastered:
+        return {
+            "topic_mastery_summary": [],
+            "refresher_topics": [],
+            "relevant_misconceptions": [],
+        }
+
+    for cand in candidate_topics:
+        matched_item = find_profile_match(cand, learner_profile) if has_profile else None
+        if matched_item:
+            p_known = float(extract_profile_field(matched_item, "p_known", 0.20))
+            eff_mastery = float(extract_profile_field(matched_item, "effective_mastery", p_known))
+            is_mastered = bool(extract_profile_field(matched_item, "mastered", False))
+            needs_refresher = bool(extract_profile_field(matched_item, "needs_refresher", False))
+            active_misc = extract_profile_field(matched_item, "active_misconceptions", []) or []
+
+            topic_mastery_summary.append({
+                "topic": cand,
+                "effective_mastery": eff_mastery,
+                "mastered": is_mastered,
+                "needs_refresher": needs_refresher,
+            })
+            if needs_refresher and cand not in refresher_topics:
+                refresher_topics.append(cand)
+            for m in active_misc:
+                m_str = str(m).strip()
+                if m_str and m_str not in seen_misc:
+                    seen_misc.add(m_str)
+                    relevant_misconceptions.append(m_str)
+        elif has_mastered:
+            is_mastered = is_prerequisite_mastered(cand, mastered_topics or [])
+            eff_mastery = 0.85 if is_mastered else 0.20
+            topic_mastery_summary.append({
+                "topic": cand,
+                "effective_mastery": eff_mastery,
+                "mastered": is_mastered,
+                "needs_refresher": False,
+            })
+
+    # Also check if any candidate topic has a decayed profile item in learner_profile
+    if has_profile and learner_profile:
+        for item in learner_profile:
+            needs_ref = bool(extract_profile_field(item, "needs_refresher", False))
+            t_name = extract_profile_field(item, "topic", "")
+            if needs_ref and t_name and t_name not in refresher_topics:
+                for cand in candidate_topics:
+                    if normalize_topic_for_comparison(cand) == normalize_topic_for_comparison(t_name):
+                        if cand not in refresher_topics:
+                            refresher_topics.append(cand)
+
+    # Misconceptions fallback: if no misconceptions were matched for specific topic or prereqs,
+    # collect active misconceptions from the subject profile
+    if not relevant_misconceptions and has_profile and learner_profile:
+        for item in learner_profile:
+            active_misc = extract_profile_field(item, "active_misconceptions", []) or []
+            for m in active_misc:
+                m_str = str(m).strip()
+                if m_str and m_str not in seen_misc:
+                    seen_misc.add(m_str)
+                    relevant_misconceptions.append(m_str)
+            if len(relevant_misconceptions) >= 5:
+                break
+
+    # Prioritize refresher topics with higher prerequisite criticality weights
+    if prerequisite_weights and refresher_topics:
+        refresher_topics.sort(
+            key=lambda t: -float(prerequisite_weights.get(t, 0.50))
+        )
+
+    return {
+        "topic_mastery_summary": topic_mastery_summary,
+        "refresher_topics": refresher_topics,
+        "relevant_misconceptions": relevant_misconceptions,
+    }
+
+
+
 class ResponseGenerator:
     """Intelligent tutoring engine combining Pinecone RAG, prerequisite graphing, and multi-model LLM generation."""
 
@@ -129,6 +277,15 @@ class ResponseGenerator:
     ) -> List[str]:
         return fetch_topic_prereqs(topic, subject=subject)
 
+    def get_prerequisite_details_for_topic(
+        self, topic: Optional[str], subject: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        from tutor.query_processing.topic_identifier import (
+            get_prerequisite_details_for_topic as fetch_topic_prereq_details,
+        )
+        return fetch_topic_prereq_details(topic, subject=subject)
+
+
     def fetch_answer(
         self, query_embedding: Any, top_k: int = 5, subject: Optional[str] = None
     ) -> List[Any]:
@@ -159,6 +316,10 @@ class ResponseGenerator:
         topic: Optional[str] = None,
         image_mode: str = "notes",
         subject: str = "",
+        topic_mastery_summary: Optional[List[Dict[str, Any]]] = None,
+        refresher_topics: Optional[List[str]] = None,
+        relevant_misconceptions: Optional[List[str]] = None,
+        learner_profile: Optional[List[Any]] = None,
     ) -> str:
         subj_label = (subject or "").strip().upper()
         active_docs = self._active_document_names(subject=subj_label)
@@ -172,6 +333,10 @@ class ResponseGenerator:
             subject=subj_label,
             prompt_version=self.TUTOR_PROMPT_VERSION,
             active_documents=active_docs,
+            topic_mastery_summary=topic_mastery_summary,
+            refresher_topics=refresher_topics,
+            relevant_misconceptions=relevant_misconceptions,
+            learner_profile=learner_profile,
         )
 
     def _generate_local_response(
@@ -194,6 +359,11 @@ class ResponseGenerator:
         provider: Optional[str] = None,
         subject: str = "",
         image_mode: str = "notes",
+        mastered_topics: Optional[List[str]] = None,
+        learner_profile: Optional[List[Any]] = None,
+        topic_mastery_summary: Optional[List[Dict[str, Any]]] = None,
+        refresher_topics: Optional[List[str]] = None,
+        relevant_misconceptions: Optional[List[str]] = None,
     ) -> ResponseResult:
         # Lexically rerank retrieved matches against student query so the most relevant chunks lead the context
         q_text = (user_question or topic or "").lower()
@@ -252,10 +422,14 @@ class ResponseGenerator:
             topic=topic,
             image_mode=image_mode,
             subject=subj_label,
+            topic_mastery_summary=topic_mastery_summary,
+            refresher_topics=refresher_topics,
+            relevant_misconceptions=relevant_misconceptions,
+            learner_profile=learner_profile,
         )
 
         system_instruction = (
-            f"You are a helpful, knowledgeable, and encouraging intelligent tutor EXCLUSIVELY for {subj_label}.\n"
+            f"You are a helpful, knowledgeable, and encouraging intelligent tutor EXCLUSIVELY for {subj_label} teaching at the {level.upper()} level.\n"
             f"STRICT SUBJECT ISOLATION RULES:\n"
             f"1. You only teach and discuss topics related to {subj_label}.\n"
             f"2. You must NEVER reference, acknowledge, or mention documents, files, or notes from other subjects (such as Data Structures and Algorithms or Machine Learning).\n"
@@ -322,6 +496,7 @@ class ResponseGenerator:
         subject: str = "",
         image_mode: str = "notes",
         mastered_topics: Optional[List[str]] = None,
+        learner_profile: Optional[List[Any]] = None,
     ) -> ResponseResult:
         # Step 1: Pinecone vector search isolated strictly to this subject namespace (filtered by min similarity threshold)
         matches = self.fetch_answer(
@@ -338,26 +513,79 @@ class ResponseGenerator:
 
         # Step 3: Retrieve prerequisites strictly for verified course topics
         # If the question is unrelated to the PDFs (no verified matches), do NOT assign any prerequisites
+        prereq_weights: Dict[str, float] = {}
         if prerequisites is None:
             if has_verified_context and topic:
                 prerequisites = self.get_prerequisites_for_topic(
                     topic, subject=subject
                 )
+                details = self.get_prerequisite_details_for_topic(
+                    topic, subject=subject
+                )
+                for d in details:
+                    d_top = d.get("topic") or d.get("prerequisite")
+                    if d_top and "weight" in d:
+                        try:
+                            prereq_weights[d_top] = float(d["weight"])
+                        except (ValueError, TypeError):
+                            pass
             else:
                 prerequisites = []
 
+        if prerequisites:
+            for idx, p in enumerate(prerequisites):
+                if p not in prereq_weights:
+                    prereq_weights[p] = max(0.50, round(1.0 - 0.05 * idx, 2))
+
+        # Keep initial prerequisites before filtering for learner cognitive state modeling
+        initial_prerequisites = list(prerequisites) if prerequisites else []
+
         # Step 3b: Learner Model filtering
-        # Filter out any prerequisites that the student has already mastered
-        if prerequisites and mastered_topics:
+        # Filter out any prerequisites that the student has already mastered,
+        # unless memory decay has set in and the student needs a refresher!
+        if prerequisites and (mastered_topics or learner_profile):
             unmastered_prereqs = []
             for p in prerequisites:
-                if is_prerequisite_mastered(p, mastered_topics):
+                matched_item = (
+                    find_profile_match(p, learner_profile)
+                    if learner_profile
+                    else None
+                )
+                if matched_item:
+                    is_m = bool(extract_profile_field(matched_item, "mastered", False))
+                    needs_ref = bool(extract_profile_field(matched_item, "needs_refresher", False))
+                    if is_m and not needs_ref:
+                        print(
+                            f"[LEARNER MODEL] Prerequisite '{p}' is mastered and retained. Skipping prerequisite intro."
+                        )
+                        continue
+                    elif needs_ref:
+                        print(
+                            f"[LEARNER MODEL] Prerequisite '{p}' was mastered but decayed (needs refresher). Prioritizing."
+                        )
+                elif mastered_topics and is_prerequisite_mastered(p, mastered_topics):
                     print(
-                        f"[LEARNER MODEL] Prerequisite '{p}' is already mastered by student. Skipping."
+                        f"[LEARNER MODEL] Prerequisite '{p}' is already mastered by student (legacy). Skipping."
                     )
-                else:
-                    unmastered_prereqs.append(p)
+                    continue
+
+                unmastered_prereqs.append(p)
+
+            # Preserve DAG criticality order and prioritize unmastered or decayed prerequisites with highest criticality weight first
+            unmastered_prereqs.sort(
+                key=lambda p: -prereq_weights.get(p, 0.50)
+            )
             prerequisites = unmastered_prereqs
+
+        # Extract structured learner signals for continuous BKT, memory decay, and misconceptions
+        learner_signals = extract_learner_signals(
+            current_topic=topic,
+            prerequisites=initial_prerequisites,
+            learner_profile=learner_profile,
+            mastered_topics=mastered_topics,
+            prerequisite_weights=prereq_weights,
+        )
+
 
         # Step 4: Extract structured source citations
         sources = []
@@ -405,6 +633,11 @@ class ResponseGenerator:
             provider=provider,
             subject=subject,
             image_mode=image_mode,
+            mastered_topics=mastered_topics,
+            learner_profile=learner_profile,
+            topic_mastery_summary=learner_signals["topic_mastery_summary"],
+            refresher_topics=learner_signals["refresher_topics"],
+            relevant_misconceptions=learner_signals["relevant_misconceptions"],
         )
 
         return ResponseResult(

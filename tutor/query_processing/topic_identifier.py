@@ -376,3 +376,41 @@ def get_prerequisites_for_topic(
             return list(prereqs)
 
     return []
+
+
+
+def get_prerequisite_details_for_topic(
+    topic: Optional[str], subject: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Retrieves rich prerequisite details (topic, weight, reason) for a given topic from MongoDB Atlas."""
+    if not topic:
+        return []
+    db = get_db()
+    if db is None:
+        return []
+
+    subj_key = str(subject).strip().upper() if subject else None
+    query: Dict[str, Any] = {}
+    if subj_key:
+        query["subject"] = subj_key
+
+    clean_topic = topic.strip()
+    escaped = re.escape(clean_topic)
+    query["topic"] = {"$regex": f"^{escaped}$", "$options": "i"}
+
+    try:
+        doc = db.prerequisites.find_one(query)
+        if doc:
+            details = doc.get("prerequisiteDetails") or doc.get("prerequisite_details")
+            if isinstance(details, list) and details:
+                return details
+            prereqs = doc.get("prerequisites", [])
+            return [
+                {"topic": p, "weight": max(0.50, 1.0 - 0.05 * i), "reason": ""}
+                for i, p in enumerate(prereqs)
+            ]
+    except Exception as e:
+        print(f"[Warning] Failed to fetch prerequisite details for {topic}: {e}")
+
+    return []
+

@@ -288,6 +288,7 @@ router.post('/submit', async (req, res) => {
       percentage: result.percentage,
       mastered: result.mastered,
       masteredTopics: result.masteredTopics,
+      bktUpdates: result.bktUpdates || [],
     })
   } catch (error) {
     return handleError(res, error)

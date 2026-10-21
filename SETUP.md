@@ -29,6 +29,8 @@ or create .env file and paste contents of .env.example
 now go to respective providers and get api keys
 
 ### STEP 3 : INSTALL DEPENDENCIES
+
+**Option A (Recommended - Virtual Environment inside `tutor`):**
 ```bash
 cd tutor
 py -m venv .venv
@@ -37,37 +39,50 @@ pip install -r requirements.txt
 cd ..
 ```
 
-navigate to backend directory
+**Option B (From Project Root):**
 ```bash
-cd backend
-npm install
-cd ..
+py -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-navigate to frontend directory
+**Install Node Dependencies (Backend & Frontend):**
 ```bash
-cd frontend
+# You can install all at once from the root directory:
+npm run install:all
+
+# Or individually:
+cd backend
+npm install
+cd ../frontend
 npm install
 cd ..
 ```
 
 ### STEP 4 : RUNNING PRAG-TUTOR
 
-in terminal-1 (Tutor AI Service - PORT 8000)
+Open 3 separate terminals:
+
+**Terminal 1 (Tutor AI Service - PORT 8000)**
 ```bash
 cd tutor
 .venv\Scripts\activate
 py -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+# Or directly from root:
+# python tutor/main.py
 ```
 
-in terminal-2 (Backend - PORT 5000)
+**Terminal 2 (Backend API - PORT 5000)**
 ```bash
 cd backend
 npm run dev
+# Or from root: npm run backend
 ```
 
-in terminal-3 (Frontend - PORT 5173)
+**Terminal 3 (Frontend Web App - PORT 5173)**
 ```bash
 cd frontend
 npm run dev
+# Or from root: npm run frontend
 ```
+

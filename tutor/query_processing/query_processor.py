@@ -17,9 +17,18 @@ class QueryProcessor:
     def __init__(self):
         self.groq_client = None
 
-    def process_query(self, query: str, level: str = "beginner") -> Dict[str, Any]:
+    def process_query(
+        self,
+        query: str,
+        level: str = "beginner",
+        learner_profile: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
         clean_query = " ".join(query.strip().split()) if query else ""
-        return {"query": clean_query, "level": level}
+        return {
+            "query": clean_query,
+            "level": level,
+            "learner_profile": learner_profile or [],
+        }
 
     def condense_query(
         self,

@@ -15,6 +15,35 @@ export function normalizeTopicName(topic) {
     .replace(/s\b/g, '') // remove plural trailing 's'
 }
 
+const misconceptionSchema = new mongoose.Schema({
+  misconception: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  distractorChosen: {
+    type: String,
+    default: '',
+  },
+  questionText: {
+    type: String,
+    default: '',
+  },
+  detectedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  occurrences: {
+    type: Number,
+    default: 1,
+    min: 1,
+  },
+  resolved: {
+    type: Boolean,
+    default: false,
+  },
+}, { _id: false })
+
 const topicMasterySchema = new mongoose.Schema({
   studentUsername: {
     type: String,
@@ -37,7 +66,7 @@ const topicMasterySchema = new mongoose.Schema({
   },
   mastered: {
     type: Boolean,
-    default: true,
+    default: false,
   },
   bestScore: {
     type: Number,
@@ -51,11 +80,72 @@ const topicMasterySchema = new mongoose.Schema({
   },
   firstMasteredAt: {
     type: Date,
-    default: Date.now,
+    default: null,
   },
   lastAssessedAt: {
     type: Date,
     default: Date.now,
+  },
+  // Bayesian Knowledge Tracing (BKT)
+  pKnown: {
+    type: Number,
+    default: 0.20,
+    min: 0,
+    max: 1,
+  },
+  pLearn: {
+    type: Number,
+    default: 0.15,
+    min: 0,
+    max: 1,
+  },
+  pGuess: {
+    type: Number,
+    default: 0.25,
+    min: 0,
+    max: 1,
+  },
+  pSlip: {
+    type: Number,
+    default: 0.10,
+    min: 0,
+    max: 1,
+  },
+  attemptsCount: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  questionsAnswered: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  // Ebbinghaus Memory Decay
+  memoryStability: {
+    type: Number,
+    default: 7.0,
+    min: 0.5,
+  },
+  reviewStreak: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  effectiveMastery: {
+    type: Number,
+    default: 0.20,
+    min: 0,
+    max: 1,
+  },
+  needsRefresher: {
+    type: Boolean,
+    default: false,
+  },
+  // Distractor Misconception Tracking
+  activeMisconceptions: {
+    type: [misconceptionSchema],
+    default: [],
   },
 }, { timestamps: true })
 

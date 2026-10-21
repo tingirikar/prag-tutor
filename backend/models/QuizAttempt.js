@@ -1,6 +1,10 @@
 import mongoose from 'mongoose'
 
 const questionSchema = new mongoose.Schema({
+  topic: {
+    type: String,
+    default: '',
+  },
   question: {
     type: String,
     required: true,
@@ -13,6 +17,15 @@ const questionSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  distractorMisconceptions: {
+    type: mongoose.Schema.Types.Mixed,
+    default: () => ({}),
+  },
+  difficulty: {
+    type: String,
+    enum: ['beginner', 'intermediate', 'expert'],
+    default: 'intermediate',
+  },
 })
 
 const answerSchema = new mongoose.Schema({
@@ -23,6 +36,14 @@ const answerSchema = new mongoose.Schema({
   selectedAnswer: {
     type: String,
     required: true,
+  },
+  isCorrect: {
+    type: Boolean,
+    default: false,
+  },
+  diagnosedMisconception: {
+    type: String,
+    default: null,
   },
 })
 
@@ -70,6 +91,15 @@ const quizAttemptSchema = new mongoose.Schema({
   completedAt: {
     type: Date,
     default: Date.now,
+  },
+  bktUpdates: {
+    type: [{
+      topic: String,
+      priorMastery: Number,
+      posteriorMastery: Number,
+      _id: false,
+    }],
+    default: [],
   },
 }, { timestamps: true })
 

@@ -6,6 +6,10 @@ const questionSchema = new mongoose.Schema({
     type: String,
     default: () => randomUUID(),
   },
+  topic: {
+    type: String,
+    default: '',
+  },
   question: {
     type: String,
     required: true,
@@ -27,6 +31,15 @@ const questionSchema = new mongoose.Schema({
       },
       message: 'correctAnswer must represent one of the four option values.',
     },
+  },
+  distractorMisconceptions: {
+    type: mongoose.Schema.Types.Mixed,
+    default: () => ({}),
+  },
+  difficulty: {
+    type: String,
+    enum: ['beginner', 'intermediate', 'expert'],
+    default: 'intermediate',
   },
 }, { _id: false })
 

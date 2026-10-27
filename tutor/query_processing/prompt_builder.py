@@ -1,7 +1,7 @@
 """Dynamic prompt construction with prerequisite framing, pedagogical scaffolding, diagram instructions, and subject guardrails."""
 
 import re
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 def is_greeting_or_intro(query: Optional[str]) -> bool:
@@ -52,23 +52,40 @@ def sanitize_tag_content(text: str, tag_name: str) -> str:
 
 
 def get_level_guidelines(level: str) -> str:
-    """Returns tailored pedagogical instructions according to the student's mastery level."""
+    """Returns sharply differentiated pedagogical scaffolding instructions according to mastery level."""
     normalized = (level or "beginner").strip().lower()
     if normalized in {"expert", "advanced"}:
         return (
-            "Provide rigorous depth, formal definitions, and underlying architectural/theoretical mechanics. "
-            "Discuss performance trade-offs, edge cases, and design implications."
+            "STRICT EXPERT/ADVANCED PROFILE (For senior engineers and systems architects):\n"
+            "   - Tone: Rigorous, formal, highly technical, and exhaustive.\n"
+            "   - Mandatory Elements:\n"
+            "     1. Formal Mathematical & Theoretical Foundation: State exact mathematical invariants, recurrence relations (e.g., Master Theorem derivations), and asymptotic bounds (Big-O, Omega, Theta).\n"
+            "     2. Low-Level Systems & Architectural Mechanics: Analyze memory hierarchy, CPU cache line alignment, branch prediction, pointer dereferencing overhead, and latency trade-offs.\n"
+            "     3. Edge Cases & Concurrency: Detail adversarial inputs, race conditions, memory bounds, and lock-free access patterns.\n"
+            "     4. Architectural Trade-offs: Compare deeply against alternative production structures (e.g., B+ trees, Hash Maps, Skip Lists).\n"
+            "   - Strict Rule: Do NOT include basic analogies, conversational fluff, or elementary explanations. Treat the reader as an experienced professional."
         )
     elif normalized in {"intermediate"}:
         return (
-            "Use standard technical terminology while connecting concepts to practical workflows or implementation patterns. "
-            "Highlight practical use cases, best practices, and common pitfalls."
+            "STRICT INTERMEDIATE PROFILE (For computer science students and working developers):\n"
+            "   - Tone: Pragmatic, technical, and implementation-focused.\n"
+            "   - Mandatory Elements:\n"
+            "     1. Technical Definition & Working Logic: Explain the core mechanics using standard terminology and structured pseudocode/code logic.\n"
+            "     2. Complexity Analysis: Provide standard Big-O time and space complexity with clear justifications for best, average, and worst cases.\n"
+            "     3. Implementation Pitfalls: Highlight common bugs and engineering pitfalls (e.g., integer overflow in midpoint calculation, off-by-one errors, boundary conditions).\n"
+            "     4. Real-World Applications: Connect the concept to practical engineering frameworks and standard software libraries.\n"
+            "   - Strict Rule: Strike a balance between clear code implementation and formal logic; avoid oversimplified analogies and avoid purely theoretical academic proofs."
         )
     else:  # Default to beginner
         return (
-            "Focus on intuitive explanations, clear language, and relatable real-world analogies. "
-            "Demystify technical jargon by explaining terms simply before using them. "
-            "Walk through one concrete, easy-to-follow example."
+            "STRICT BEGINNER PROFILE (For complete novices with no prior background):\n"
+            "   - Tone: Friendly, highly intuitive, encouraging, and easy to grasp.\n"
+            "   - Mandatory Elements:\n"
+            "     1. The Big Picture Analogy: Start immediately with a relatable, concrete real-world analogy (e.g., finding a word in a physical dictionary or looking up a contact in a phonebook) before introducing any technical terms.\n"
+            "     2. Plain-English Concept: Explain what it is and why it exists in simple, jargon-free conversational language.\n"
+            "     3. Step-by-Step Visual Walkthrough: Provide one concrete, small, numbered walkthrough with simple sample data (e.g., [2, 5, 8, 12, 16]) showing exactly what happens at each step.\n"
+            "     4. Key Takeaway: Summarize the single main benefit in 1-2 friendly sentences.\n"
+            "   - Strict Rule: FORBIDDEN: Do not use complex mathematical proofs, asymptotic recurrence formulas, or low-level pointer/memory mechanics without explaining them in plain English first."
         )
 
 
@@ -106,6 +123,10 @@ def build_dynamic_prompt(
     subject: str = "",
     prompt_version: str = "v3-grounded-tutor",
     active_documents: Optional[List[str]] = None,
+    topic_mastery_summary: Optional[List[Dict[str, Any]]] = None,
+    refresher_topics: Optional[List[str]] = None,
+    relevant_misconceptions: Optional[List[str]] = None,
+    learner_profile: Optional[List[Any]] = None,
 ) -> str:
     """Constructs the dynamic prompt with prerequisite context, level-adapted scaffolding, diagram mode instructions, and airtight subject isolation guardrails."""
     subj_label = (subject or "").strip().upper() or "COURSE"
@@ -164,6 +185,58 @@ def build_dynamic_prompt(
         prereqs_str = ", ".join(cleaned_prereqs)
         sections.append(f"<prerequisites>{prereqs_str}</prerequisites>")
 
+    # Build cognitive state components if learner profile signals are provided
+    cognitive_parts: List[str] = []
+
+    # 1. Continuous Mastery Context
+    if topic_mastery_summary:
+        mastery_lines = []
+        for item in topic_mastery_summary:
+            t_name = item.get("topic") or "Topic"
+            eff = float(item.get("effective_mastery", 0.20))
+            pct = int(round(eff * 100))
+            is_m = item.get("mastered", False)
+            needs_ref = item.get("needs_refresher", False)
+            status_tag = "Needs Refresher (decayed)" if needs_ref else ("Mastered" if is_m else "In Progress")
+            mastery_lines.append(f"- {t_name}: {pct}% effective mastery ({status_tag})")
+
+        if mastery_lines:
+            mastery_str = ", ".join(
+                f"{item.get('topic')}: {int(round(float(item.get('effective_mastery', 0.20)) * 100))}%"
+                for item in topic_mastery_summary
+            )
+            cognitive_parts.append(
+                "Continuous Mastery Context:\n"
+                + "\n".join(mastery_lines)
+                + f"\nCalibrate your explanation and pedagogical scaffolding to the exact mastery percentage ({mastery_str}) alongside the requested depth level ('{level.lower()}'). Provide intuitive, concrete foundations if mastery is low; if mastery is high, move swiftly to deeper applications."
+            )
+
+    # 2. Ebbinghaus Memory Decay Alert
+    if refresher_topics:
+        refresher_str = ", ".join(refresher_topics)
+        cognitive_parts.append(
+            f"Ebbinghaus Memory Decay Alert:\n"
+            f"The student previously mastered {refresher_str}, but their memory has decayed over time (effective mastery < 70%). "
+            f"Briefly weave in a 1-2 sentence refresher of {refresher_str} before building on them, and encourage a quick refresher quiz."
+        )
+
+    # 3. Misconception Remediation Directive
+    if relevant_misconceptions:
+        misc_items = "\n".join(f"- {m}" for m in relevant_misconceptions)
+        cognitive_parts.append(
+            f"Misconception Remediation Directive:\n"
+            f"In past quizzes, the student exhibited the following specific misconceptions:\n"
+            f"{misc_items}\n"
+            f"Proactively address and clarify these exact misunderstandings in your explanation without sounding punitive."
+        )
+
+    if cognitive_parts:
+        cognitive_block = (
+            "=== LEARNER COGNITIVE STATE (BKT + FORGETTING CURVE + MISCONCEPTIONS) ===\n"
+            + "\n\n".join(cognitive_parts)
+        )
+        sections.append(cognitive_block)
+
     # Assemble structured, consecutively numbered instructions
     instructions: List[str] = []
 
@@ -202,15 +275,34 @@ def build_dynamic_prompt(
     level_guidance = get_level_guidelines(level)
     target_query_text = user_question.strip() if user_question else topic_display
     instructions.append(
-        f"Core Topic Explanation ({level.capitalize()} Level):\n"
+        f"Core Topic Explanation ({level.upper()} Level - MANDATORY PROFILE):\n"
         f"   - Primary Directive: Directly, specifically, and thoroughly answer the student's question: '{target_query_text}'.\n"
+        f"   - MANDATORY LEVEL PEDAGOGY: Your entire answer MUST strictly follow the {level.upper()} profile below:\n{level_guidance}\n"
         f"   - Syllabus Context: Ground the explanation in {topic_display} and verified concepts within {subj_label}.\n"
         f"   - ACCURACY GUARD: Keep the entire explanation strictly focused on '{target_query_text}'. Never divert to or substitute with an unrelated subject.\n"
-        f"   - Pedagogical Scaffolding: {level_guidance}\n"
         f"   - Do NOT include any quiz questions, checkpoint questions, or 'check-for-understanding' sections."
     )
 
-    # 4. Visual Diagram Instruction
+    # 4. Adaptive Learner Scaffolding (if cognitive state is present)
+    if cognitive_parts:
+        refresher_instruction = (
+            f"   - Memory Refresher: Weave in a brief 1-2 sentence refresher on {', '.join(refresher_topics)} before progressing.\n"
+            if refresher_topics
+            else ""
+        )
+        misconception_instruction = (
+            "   - Remediation: Explicitly and gently dispel the diagnosed misconception(s) identified in the cognitive state.\n"
+            if relevant_misconceptions
+            else ""
+        )
+        instructions.append(
+            f"Adaptive Learner Scaffolding (BKT & Forgetting Curve):\n"
+            f"   - Calibrate the scaffolding to the student's continuous BKT mastery scores alongside depth level ({level.capitalize()}).\n"
+            f"{refresher_instruction}"
+            f"{misconception_instruction}".rstrip()
+        )
+
+    # 5. Visual Diagram Instruction
     diagram_inst = get_diagram_instruction(image_mode, topic_display)
     if diagram_inst:
         instructions.append(diagram_inst)

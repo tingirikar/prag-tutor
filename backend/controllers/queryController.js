@@ -3,29 +3,22 @@ import Conversation from '../models/Conversation.js'
 import { isMongoReady } from '../config/db.js'
 import { callPython } from '../services/pythonService.js'
 import { isValidObjectId } from '../middleware/validation.js'
-import { createQuizSet, getConversationQuizStatus, getMasteredTopics, shouldForceQuiz } from '../services/quizService.js'
+import { createQuizSet, getConversationQuizStatus, getMasteredTopics, getLearnerProfile, shouldForceQuiz } from '../services/quizService.js'
 
 function isGenuineExplanation(result) {
   if (!result || typeof result !== 'object') return false
-  if (result.error) return false
+  if (result.error || result.rejected) return false
   const text = String(result.response || result.answer || '').trim()
-  if (!text || text.length < 50) return false
+  if (!text || text.length < 60) return false
 
-  const fallbackIndicators = [
+  const refusalIndicators = [
     'could not complete the tutor response',
-    'no course documents have been uploaded',
-    'no course documents for',
-    'not covered in the available course material',
-    'cannot answer this question based on the course materials',
-    'sorry, but no course documents',
-    'do not have access to',
-    'please upload course documents',
-    'fallback',
+    'cannot answer this question',
   ]
 
   const lower = text.toLowerCase()
-  for (const phrase of fallbackIndicators) {
-    if (lower.includes(phrase)) return false
+  for (const phrase of refusalIndicators) {
+    if (lower.includes(phrase) && text.length < 200) return false
   }
 
   return true
@@ -59,8 +52,20 @@ export async function handleQuery(request, response) {
   // Quizzes are completely optional: students can ask questions and say no any number of times.
 
   try {
-    // 0. Learner Model: Retrieve student's mastered topics for this subject
+    // 0. Learner Model: Retrieve student's mastered topics and rich learner profile
     const masteredTopics = await getMasteredTopics(studentUsername, subject)
+    const rawProfile = await getLearnerProfile(studentUsername, subject)
+    const learnerProfile = (rawProfile || []).map((item) => ({
+      topic: item.topic,
+      normalized_topic: item.normalizedTopic,
+      p_known: item.pKnown != null ? item.pKnown : 0.20,
+      effective_mastery: item.effectiveMastery != null ? item.effectiveMastery : 0.20,
+      mastered: Boolean(item.mastered),
+      needs_refresher: Boolean(item.needsRefresher),
+      active_misconceptions: (item.activeMisconceptions || [])
+        .filter((m) => (typeof m === 'object' ? !m.resolved : true))
+        .map((m) => (typeof m === 'string' ? m : m.misconception)),
+    }))
 
     // 1. Call Python RAG Backend
     const result = await callPython('/rag/query', {
@@ -77,6 +82,7 @@ export async function handleQuery(request, response) {
         include_image: request.body?.include_image !== undefined ? Boolean(request.body.include_image) : true,
         image_mode: request.body?.image_mode || 'notes',
         mastered_topics: masteredTopics,
+        learner_profile: learnerProfile,
       }),
       timeout: 180000, // 3 minute timeout for query processing
     })

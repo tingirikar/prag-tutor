@@ -29,3 +29,32 @@ export async function callPython(endpoint, options = {}) {
     throw error
   }
 }
+
+/**
+ * Diagnoses the conceptual misconception behind a chosen distractor by calling Python RAG endpoint.
+ * Falls back deterministically if unreachable or on timeout.
+ */
+export async function diagnoseMisconception({ topic = '', question = '', selectedAnswer = '', correctAnswer = '' }) {
+  const fallback = `Confused '${selectedAnswer}' with '${correctAnswer}' regarding ${topic} (${question})`
+  try {
+    const payload = await callPython('/learner/diagnose-misconception', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        topic: String(topic || ''),
+        question: String(question || ''),
+        selected_answer: String(selectedAnswer || ''),
+        correct_answer: String(correctAnswer || ''),
+      }),
+      timeout: 10000,
+    })
+
+    if (payload && payload.misconception && typeof payload.misconception === 'string') {
+      return payload.misconception.trim()
+    }
+  } catch (error) {
+    console.warn(`[pythonService] Falling back to default diagnosis: ${error.message}`)
+  }
+  return fallback
+}
+

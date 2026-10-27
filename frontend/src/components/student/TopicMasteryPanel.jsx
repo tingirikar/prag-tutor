@@ -378,8 +378,13 @@ export default function TopicMasteryPanel({
 
                 <div>
                   {/* Status row */}
-                  <div className="flex items-center justify-between">
-                    {isCompleted ? (
+                  <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                    {topicItem.needsRefresher ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30">
+                        <RefreshCw size={11} className="animate-spin-slow text-amber-400" />
+                        <span>Needs Refresher</span>
+                      </span>
+                    ) : isCompleted ? (
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400 ring-1 ring-emerald-500/25">
                         <CheckCircle2 size={12} />
                         <span>Mastered</span>
@@ -391,17 +396,34 @@ export default function TopicMasteryPanel({
                       </span>
                     )}
 
-                    {isCompleted && topicItem.bestScore !== undefined && (
-                      <span className="font-mono text-[11px] font-semibold text-emerald-300">
-                        {topicItem.bestScore}/{topicItem.total} ({topicItem.percentage}%)
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {topicItem.effectiveMastery !== undefined && (
+                        <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-strong ring-1 ring-line">
+                          {Math.round(topicItem.effectiveMastery * 100)}% BKT
+                        </span>
+                      )}
+                      {isCompleted && topicItem.bestScore !== undefined && (
+                        <span className="font-mono text-[11px] font-semibold text-emerald-300">
+                          {topicItem.bestScore}/{topicItem.total}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Topic Title */}
                   <h3 className="mt-3 font-display text-base font-semibold leading-snug text-fg group-hover:text-accent-strong">
                     {topicItem.topic}
                   </h3>
+
+                  {/* Diagnosed Misconception Notice */}
+                  {topicItem.activeMisconceptions && topicItem.activeMisconceptions.length > 0 && (
+                    <div className="mt-2.5 rounded-xl border border-amber-500/25 bg-amber-500/5 p-2.5 text-[11.5px]">
+                      <span className="font-semibold text-amber-400">Diagnosed Misconception:</span>
+                      <p className="mt-1 text-dim italic leading-snug">
+                        "{typeof topicItem.activeMisconceptions[0] === 'object' ? topicItem.activeMisconceptions[0].misconception : topicItem.activeMisconceptions[0]}"
+                      </p>
+                    </div>
+                  )}
 
                   {/* Metadata & Prerequisites */}
                   <div className="mt-2.5 space-y-1.5">

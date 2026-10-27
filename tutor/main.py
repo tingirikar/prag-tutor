@@ -26,10 +26,24 @@ from tutor.query_processing import (
     QueryProcessor,
     ResponseGenerator,
 )
+from tutor.learner_modelling import (
+    DEFAULT_P_GUESS,
+    DEFAULT_P_LEARN,
+    DEFAULT_P_SLIP,
+    MASTERY_THRESHOLD,
+    compute_effective_mastery,
+    diagnose_wrong_answer,
+    update_bkt_sequence,
+    update_stability,
+)
 from tutor.schemas import (
+    BKTUpdateRequest,
+    BKTUpdateResponse,
     DocumentRequest,
     IndexRequest,
     ImageRequest,
+    MisconceptionDiagnosisRequest,
+    MisconceptionDiagnosisResponse,
     QueryRequest,
 )
 
@@ -154,7 +168,9 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
 
     try:
         processed = query_processor.process_query(
-            request.query, request.level.lower()
+            request.query,
+            request.level.lower(),
+            learner_profile=request.learner_profile,
         )
         search_query = query_processor.condense_query(
             processed["query"],
@@ -174,6 +190,7 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
             subject=request.subject,
             image_mode=request.image_mode,
             mastered_topics=request.mastered_topics,
+            learner_profile=request.learner_profile,
         )
         response_text = getattr(result, "response", str(result))
 
@@ -454,3 +471,78 @@ def delete_document(request: DocumentRequest) -> Dict[str, Any]:
         raise HTTPException(
             status_code=500, detail=f"Failed to delete document: {error}"
         ) from error
+
+
+# ── Learner Modelling (BKT & Forgetting Decay) ─────────────────────────
+@app.post("/learner/bkt-update", response_model=BKTUpdateResponse)
+def learner_bkt_update(request: BKTUpdateRequest) -> BKTUpdateResponse:
+    """Computes time decay, BKT sequence update, and memory stability adaptation."""
+    # 1. Compute time-decayed effective prior if elapsed_days > 0
+    decay_result = compute_effective_mastery(
+        p_known=request.p_known,
+        elapsed_days=request.elapsed_days,
+        memory_stability=request.memory_stability,
+    )
+    effective_prior = decay_result["effective_mastery"]
+
+    # 2. Run BKT update on observations starting from effective_prior
+    bkt_result = update_bkt_sequence(
+        p_known=effective_prior,
+        observations=request.observations,
+        p_learn=request.p_learn,
+        p_guess=request.p_guess,
+        p_slip=request.p_slip,
+    )
+    posterior = bkt_result["posterior_mastery"]
+
+    # 3. Update memory stability and review streak based on observation accuracy
+    if request.observations:
+        accuracy = sum(1 for obs in request.observations if obs) / len(request.observations)
+        new_stability, new_streak = update_stability(
+            current_stability=request.memory_stability,
+            review_streak=request.review_streak,
+            accuracy=accuracy,
+        )
+    else:
+        new_stability, new_streak = request.memory_stability, request.review_streak
+
+    mastered = posterior >= MASTERY_THRESHOLD
+
+    return BKTUpdateResponse(
+        prior_mastery=round(request.p_known, 4),
+        effective_prior=effective_prior,
+        posterior_mastery=posterior,
+        mastered=mastered,
+        needs_refresher=decay_result["needs_refresher"] if not request.observations else False,
+        effective_mastery=posterior if request.observations else effective_prior,
+        memory_stability=new_stability,
+        review_streak=new_streak,
+    )
+
+
+@app.post(
+    "/learner/diagnose-misconception",
+    response_model=MisconceptionDiagnosisResponse,
+)
+def learner_diagnose_misconception(
+    request: MisconceptionDiagnosisRequest,
+) -> MisconceptionDiagnosisResponse:
+    """Diagnoses the specific conceptual misconception behind selecting an incorrect option."""
+    diagnosis = diagnose_wrong_answer(
+        topic=request.topic,
+        question=request.question,
+        selected_answer=request.selected_answer,
+        correct_answer=request.correct_answer,
+    )
+    return MisconceptionDiagnosisResponse(misconception=diagnosis)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # Support running both `python main.py` (inside tutor/) and `python tutor/main.py` (from root)
+    app_target = "main:app" if Path.cwd().name == "tutor" else "tutor.main:app"
+    uvicorn.run(app_target, host="127.0.0.1", port=8000, reload=True)
+
+
+

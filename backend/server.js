@@ -22,14 +22,24 @@ import quizRoutes from './routes/quizRoutes.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.resolve(__dirname, '..', '.env') })
 
-// 2. Ensure uploads directory exists
+// 2. Validate critical environment variables
+if (process.env.NODE_ENV === 'production' && !process.env.AUTH_SECRET) {
+  console.error('[FATAL] AUTH_SECRET environment variable is required in production.')
+  console.error('[FATAL] Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"')
+  process.exit(1)
+}
+
+// 3. Ensure uploads directory exists
 await fs.mkdir(uploadDir, { recursive: true })
 
-// 3. Connect to MongoDB (Atlas or local fallback)
+// 4. Connect to MongoDB (Atlas or local fallback)
 await connectDB()
 
 const app = express()
 const port = Number(process.env.PORT || 5000)
+
+// Trust proxy for rate limiting behind reverse proxies
+app.set('trust proxy', 1)
 
 // 4. Security Headers
 app.use(helmet({
@@ -55,7 +65,6 @@ app.use((err, _req, res, next) => {
 })
 
 // 6. Rate Limiting
-app.use('/api/auth', authRateLimiter)
 app.use('/api/query', queryRateLimiter)
 app.use(generalRateLimiter)
 

@@ -8,8 +8,8 @@ import Subject from '../models/Subject.js';
 import bcrypt from 'bcrypt';
 
 // Pre-hashed passwords for demo accounts (password: "123")
-// Hash generated with bcrypt.genSalt(10) + bcrypt.hash("123", salt)
-const HASHED_PASSWORD_123 = '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
+// Hash generated with bcrypt.hashSync("123", 10)
+const HASHED_PASSWORD_123 = '$2b$10$Ry4Nu0QFYcWXRBKj6DN6aOUw1TE3llWTKMopDLsUMYqWOSDE17Nqi';
 
 export const DEMO_USERS = [
   { username: 'alice', password: HASHED_PASSWORD_123, name: 'Alice', role: 'student', enrolled: ['DSA', 'ML', 'CN', 'OS']},

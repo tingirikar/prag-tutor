@@ -5,10 +5,8 @@
  */
 
 export function errorHandler(err, req, res, next) {
-  // Log full error for debugging (should use proper logging library in production)
-  if (process.env.NODE_ENV !== 'production') {
-    console.error('[ERROR]', err)
-  }
+  // Always log errors server-side for monitoring
+  console.error('[ERROR]', err)
 
   // Don't leak stack traces or sensitive information to clients
   const isDevelopment = process.env.NODE_ENV !== 'production'
@@ -27,7 +25,8 @@ export function errorHandler(err, req, res, next) {
     })
   }
 
-  if (err.name === 'MongoError' && err.code === 11000) {
+  // Handle duplicate key errors (MongoError in older versions, MongoServerError in newer)
+  if ((err.name === 'MongoError' || err.name === 'MongoServerError') && err.code === 11000) {
     return res.status(409).json({
       error: 'Duplicate entry'
     })

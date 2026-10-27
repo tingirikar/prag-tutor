@@ -976,6 +976,7 @@ export default function StudentDashboard() {
       <Lightbox
         image={lightboxImage}
         username={currentUser.username}
+        token={sessionStorage.getItem('authToken')}
         onClose={() => setLightboxImage(null)}
       />
     </AppShell>

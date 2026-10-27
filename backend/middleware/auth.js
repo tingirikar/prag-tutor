@@ -1,28 +1,29 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import jwt from 'jsonwebtoken'
 import User from '../models/User.js'
 
 const tokenLifetimeSeconds = 8 * 60 * 60
 
 function getTokenSecret() {
-  return process.env.AUTH_SECRET || 'prag-tutor-development-secret'
-}
-
-function encode(value) {
-  return Buffer.from(JSON.stringify(value)).toString('base64url')
-}
-
-function sign(value) {
-  return createHmac('sha256', getTokenSecret()).update(value).digest('base64url')
+  const secret = process.env.AUTH_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('AUTH_SECRET environment variable is required in production')
+    }
+    console.warn('[WARNING] Using development AUTH_SECRET. Set AUTH_SECRET in production!')
+    return 'prag-tutor-development-secret'
+  }
+  return secret
 }
 
 export function createAuthToken(user) {
-  const payload = encode({
+  const payload = {
     username: user.username,
     role: user.role,
     subject: user.subject || null,
-    exp: Math.floor(Date.now() / 1000) + tokenLifetimeSeconds,
+  }
+  return jwt.sign(payload, getTokenSecret(), {
+    expiresIn: `${tokenLifetimeSeconds}s`,
   })
-  return `${payload}.${sign(payload)}`
 }
 
 function readToken(request) {
@@ -34,21 +35,13 @@ function readToken(request) {
 export async function requireAuth(request, response, next) {
   try {
     const token = readToken(request)
-    const [payload, signature] = token.split('.')
-    if (!payload || !signature) {
+    if (!token) {
       return response.status(401).json({ error: 'Authentication is required.' })
     }
 
-    const expected = sign(payload)
-    const signaturesMatch = signature.length === expected.length
-      && timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-    if (!signaturesMatch) {
+    const claims = jwt.verify(token, getTokenSecret())
+    if (!claims.username) {
       return response.status(401).json({ error: 'Invalid authentication token.' })
-    }
-
-    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-    if (!claims.username || Number(claims.exp) <= Math.floor(Date.now() / 1000)) {
-      return response.status(401).json({ error: 'Authentication token has expired.' })
     }
 
     const user = await User.findOne({ username: claims.username }).lean()
@@ -59,7 +52,13 @@ export async function requireAuth(request, response, next) {
     request.user = user
     return next()
   } catch (error) {
-    return response.status(401).json({ error: 'Invalid authentication token.' })
+    if (error.name === 'TokenExpiredError') {
+      return response.status(401).json({ error: 'Authentication token has expired.' })
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return response.status(401).json({ error: 'Invalid authentication token.' })
+    }
+    return response.status(401).json({ error: 'Authentication failed.' })
   }
 }
 

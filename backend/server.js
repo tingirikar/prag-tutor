@@ -3,9 +3,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import cors from 'cors'
+import helmet from 'helmet'
 import express from 'express'
 import { connectDB, isMongoReady } from './config/db.js'
 import { uploadDir } from './middleware/upload.js'
+import { generalRateLimiter, authRateLimiter, queryRateLimiter } from './middleware/rateLimit.js'
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 
 import authRoutes from './routes/authRoutes.js'
 import subjectRoutes from './routes/subjectRoutes.js'
@@ -28,7 +31,20 @@ await connectDB()
 const app = express()
 const port = Number(process.env.PORT || 5000)
 
-// 4. Global Middlewares
+// 4. Security Headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Allow for dev mode
+}))
+
+// 5. Global Middlewares
 app.use(cors())
 app.use(express.json())
 app.use((err, _req, res, next) => {
@@ -38,12 +54,17 @@ app.use((err, _req, res, next) => {
   next(err)
 })
 
-// 5. System Health Check
+// 6. Rate Limiting
+app.use('/api/auth', authRateLimiter)
+app.use('/api/query', queryRateLimiter)
+app.use(generalRateLimiter)
+
+// 7. System Health Check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', mongo: isMongoReady() })
 })
 
-// 6. Mount Feature Routers
+// 8. Mount Feature Routers
 app.use('/api/auth', authRoutes)
 app.use('/api/subjects', subjectRoutes)
 app.use('/api/conversations', conversationRoutes)
@@ -52,7 +73,11 @@ app.use('/api/quiz', quizRoutes)
 app.use('/api', queryRoutes)
 app.use('/api', documentRoutes)
 
-// 7. Start Server
+// 9. Error Handling
+app.use(notFoundHandler)
+app.use(errorHandler)
+
+// 10. Start Server
 app.listen(port, () => {
   console.log(`Node API server listening on http://127.0.0.1:${port}`)
 })

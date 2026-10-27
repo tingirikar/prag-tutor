@@ -16,12 +16,18 @@ export async function login(request, response) {
     }
 
     const user = await User.findOne({
-      username: String(username).trim(),
-      password: String(password).trim()
+      username: String(username).trim()
     })
     if (!user) {
       return response.status(401).json({ error: 'Invalid username or password.' })
     }
+
+    // Compare hashed password
+    const isPasswordValid = await user.comparePassword(String(password).trim())
+    if (!isPasswordValid) {
+      return response.status(401).json({ error: 'Invalid username or password.' })
+    }
+
     return response.json({
       token: createAuthToken(user),
       user: {
@@ -33,15 +39,15 @@ export async function login(request, response) {
       }
     })
   } catch (err) {
-    return response.status(500).json({ error: err.message })
+    return response.status(500).json({ error: 'An error occurred during login.' })
   }
 }
 
 export function getDemoAccounts(_request, response) {
   response.json({
-    accounts: DEMO_USERS.map(({ username, password, name, role, subject, enrolled }) => ({
+    accounts: DEMO_USERS.map(({ username, name, role, subject, enrolled }) => ({
       username,
-      password,
+      password: '123', // Display default password for demo purposes
       name,
       role,
       subject,

@@ -76,7 +76,6 @@ export default function MessageBubble({ msg, index, expanded, onToggleSources, o
   }
 
   const isError = typeof msg.content === 'string' && msg.content.startsWith('Error:')
-  const imageToken = sessionStorage.getItem('authToken')
 
   return (
     <div className="flex animate-rise gap-3 sm:gap-4">
@@ -123,7 +122,7 @@ export default function MessageBubble({ msg, index, expanded, onToggleSources, o
                   className="group relative h-40 w-56 shrink-0 snap-start overflow-hidden rounded-xl border border-line bg-panel transition hover:border-accent"
                 >
                   <img
-                    src={`/api${img.url}?u=${encodeURIComponent(username || 'student')}&token=${encodeURIComponent(imageToken || '')}`}
+                    src={`/api${img.url}?u=${encodeURIComponent(username || 'student')}`}
                     alt={img.source === 'document' ? `Diagram from ${img.document}, page ${img.page + 1}` : 'Diagram'}
                     loading="lazy"
                     className="size-full object-contain transition-transform group-hover:scale-[1.03]"

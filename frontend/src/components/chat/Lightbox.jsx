@@ -15,7 +15,7 @@ import {
   Layers,
 } from 'lucide-react'
 
-export default function Lightbox({ image, username, token, onClose }) {
+export default function Lightbox({ image, username, onClose }) {
   if (!image) return null
 
   // Normalize image data (supports both direct image object and { image, images, index })
@@ -38,17 +38,16 @@ export default function Lightbox({ image, username, token, onClose }) {
   const [loading, setLoading] = useState(true)
 
   const containerRef = useRef(null)
-  const authToken = token || sessionStorage.getItem('authToken') || localStorage.getItem('authToken') || ''
 
   const currentImage = imageList[currentIndex] || imageList[0] || {}
 
-  // Build authenticated image source URL
+  // Build authenticated image source URL (token now in Authorization header, not URL)
   const getImageSrc = useCallback((imgObj) => {
     if (!imgObj?.url) return ''
     const cleanUrl = imgObj.url.startsWith('/api') ? imgObj.url : `/api${imgObj.url.startsWith('/') ? '' : '/'}${imgObj.url}`
     const separator = cleanUrl.includes('?') ? '&' : '?'
-    return `${cleanUrl}${separator}u=${encodeURIComponent(username || 'student')}${authToken ? `&token=${encodeURIComponent(authToken)}` : ''}`
-  }, [authToken, username])
+    return `${cleanUrl}${separator}u=${encodeURIComponent(username || 'student')}`
+  }, [username])
 
   const src = getImageSrc(currentImage)
 

@@ -15,7 +15,12 @@ export async function connectDB() {
     try {
       const isAtlas = configuredMongoUri.includes('@')
       console.log(`Connecting to ${isAtlas ? 'configured MongoDB Atlas' : 'configured MongoDB'}...`)
-      await mongoose.connect(configuredMongoUri, { serverSelectionTimeoutMS: 5000 })
+      
+      await mongoose.connect(configuredMongoUri, {
+        dbName: process.env.DB_NAME || 'prag-tutor',
+        serverSelectionTimeoutMS: 5000,
+      })
+
       mongoReady = true
       console.log('MongoDB connected successfully to configured URI.')
       await seedDatabase()
@@ -28,7 +33,12 @@ export async function connectDB() {
   if (!mongoReady) {
     try {
       console.log('Connecting to local MongoDB (127.0.0.1:27017)...')
-      await mongoose.connect(localMongoUri, { serverSelectionTimeoutMS: 3000 })
+      
+      await mongoose.connect(localMongoUri, {
+        dbName: process.env.DB_NAME || 'prag-tutor',
+        serverSelectionTimeoutMS: 3000,
+      })
+
       mongoReady = true
       console.log('MongoDB connected to local instance.')
       await seedDatabase()

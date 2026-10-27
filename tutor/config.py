@@ -44,10 +44,11 @@ def get_db():
             client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=3000)
             client.admin.command('ping')
             _mongo_client = client
+            db_name = os.environ.get("DB_NAME", "prag-tutor").strip() or "prag-tutor"
             try:
-                _mongo_db = _mongo_client.get_default_database()
+                _mongo_db = _mongo_client.get_default_database() or _mongo_client[db_name]
             except Exception:
-                _mongo_db = _mongo_client["prag-tutor"]
+                _mongo_db = _mongo_client[db_name]
             return _mongo_db
         except Exception as e:
             print(f"[Warning] Configured MongoDB connection failed: {e}. Falling back to local MongoDB...")
@@ -57,7 +58,7 @@ def get_db():
         local_client = pymongo.MongoClient("mongodb://127.0.0.1:27017/prag-tutor", serverSelectionTimeoutMS=3000)
         local_client.admin.command('ping')
         _mongo_client = local_client
-        _mongo_db = local_client["prag-tutor"]
+        _mongo_db = local_client[os.environ.get("DB_NAME", "prag-tutor").strip() or "prag-tutor"]
         print("Connected successfully to local MongoDB (prag-tutor).")
         return _mongo_db
     except Exception as e:

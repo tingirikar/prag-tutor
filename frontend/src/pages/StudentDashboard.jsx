@@ -36,7 +36,7 @@ export default function StudentDashboard() {
     }
   }, [navigate])
 
-  const defaultSubjects = [
+  const [subjects, setSubjects] = useState([
     {
       code: 'DSA',
       name: 'Data Structures & Algorithms',
@@ -322,7 +322,7 @@ export default function StudentDashboard() {
     const cId = searchParams.get('c') || sessionStorage.getItem('student_current_conv_id')
 
     if (sCode) {
-      const match = defaultSubjects.find(s => s.code.toUpperCase() === sCode.toUpperCase())
+      const match = subjects.find(s => s.code.toUpperCase() === sCode.toUpperCase())
       const targetSubj = match || { code: sCode.toUpperCase(), name: sCode.toUpperCase() }
       setSelectedSubject(targetSubj)
       sessionStorage.setItem('student_selected_subject', targetSubj.code)

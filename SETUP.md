@@ -67,9 +67,9 @@ Open 3 separate terminals:
 ```bash
 cd tutor
 .venv\Scripts\activate
-py -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
-# Or directly from root:
-# python tutor/main.py
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+# Or directly using the venv python:
+# .venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 **Terminal 2 (Backend API - PORT 5000)**

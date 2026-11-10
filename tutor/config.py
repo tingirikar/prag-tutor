@@ -23,6 +23,8 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY", "").strip()
 PINECONE_INDEX = os.environ.get("PINECONE_INDEX", "").strip()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+GROQ_FALLBACK_API_KEY = os.environ.get("GROQ_FALLBACK_API_KEY", "").strip()
+GROQ_JUDGE_API_KEY = os.environ.get("GROQ_JUDGE_API_KEY", "").strip()
 OLLAMA_URL = 'http://127.0.0.1:11434'
 OLLAMA_MODEL = 'llama3.2:3b'
 

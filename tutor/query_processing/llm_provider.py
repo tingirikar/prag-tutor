@@ -1,7 +1,8 @@
 """LLM provider integration: Groq cloud client with model fallbacks and local Ollama execution."""
 
+import os
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -19,52 +20,46 @@ def generate_local_response(
                 "model": model_name,
                 "messages": messages,
                 "stream": False,
-                "options": {"num_predict": 2500},
             },
-            timeout=(5, 120),
+            timeout=90,
         )
         if response.status_code == 404:
             return (
                 f"Local Ollama model '{model_name}' is not installed.\n\n"
-                f"To install and run it locally, run this in your terminal:\n"
+                f"Please pull it first by opening a terminal and running:\n"
                 f"```powershell\nollama pull {model_name}\n```"
             )
-        response.raise_for_status()
-        content = response.json().get("message", {}).get("content", "").strip()
-        if content:
+        if response.status_code == 200:
+            result = response.json()
+            local_text = result.get("message", {}).get("content", "").strip()
             print(f"Used local Ollama model '{model_name}'.")
-            return content
-    except requests.RequestException as error:
+            return local_text
+    except Exception as error:
         print(f"Notice local Ollama unavailable ({model_name}): {error}")
-    except (ValueError, AttributeError, TypeError) as error:
+    except (KeyError, ValueError) as error:
         print(f"Notice local Ollama returned an invalid response: {error}")
     return None
 
 
 def call_llm_response(
-    groq_client,
+    groq_client: Any,
     messages: List[Dict[str, str]],
     preferred_model: Optional[str] = None,
-    default_model: str = "openai/gpt-oss-20b",
+    default_model: Optional[str] = None,
     ollama_url: str = "http://127.0.0.1:11434",
     ollama_model: str = "llama3.2:3b",
     provider: Optional[str] = None,
-) -> Tuple[Optional[str], str, str]:
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Orchestrates LLM call across preferred model, fallbacks, and local Ollama.
 
-    Returns (text_response, model_used, provider_used).
+    Returns:
+        (text_response, model_used, provider_used)
     """
-    is_local = (provider == "local") or (
-        preferred_model and preferred_model.startswith("local:")
-    )
+    normalized_provider = (provider or "groq").strip().lower()
     target_model = preferred_model or default_model
-    if target_model.startswith("local:"):
-        target_model = target_model[6:].strip()
-    elif target_model.startswith("groq:"):
-        target_model = target_model[5:].strip()
 
     # Local Ollama branch
-    if is_local:
+    if normalized_provider in ("local", "ollama"):
         local_model_name = target_model or ollama_model
         local_response = generate_local_response(
             messages, ollama_url, local_model_name
@@ -78,7 +73,7 @@ def call_llm_response(
             "local",
         )
 
-    # Cloud Groq branch
+    # Cloud Groq branch with primary + fallback keys
     groq_fallbacks = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     candidate_models = []
     if target_model:
@@ -91,29 +86,39 @@ def call_llm_response(
 
     cloud_model = candidate_models[0] if candidate_models else "qwen/qwen3.8-27b"
 
-    for model in candidate_models:
+    clients = []
+    if groq_client:
+        clients.append(groq_client)
+    fallback_key = os.environ.get("GROQ_FALLBACK_API_KEY", "").strip()
+    if fallback_key:
         try:
-            if not groq_client:
-                break
-            response = groq_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=2500,
-            )
-            raw_content = response.choices[0].message.content or ""
-            if not raw_content and getattr(
-                response.choices[0].message, "reasoning", None
-            ):
-                raw_content = response.choices[0].message.reasoning or ""
-            cleaned = re.sub(
-                r"<think>.*?</think>", "", raw_content, flags=re.DOTALL
-            )
-            cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
-            if cleaned.strip():
-                return cleaned.strip(), model, "groq"
+            from groq import Groq
+            clients.append(Groq(api_key=fallback_key))
         except Exception as e:
-            print(f"Notice generating response with {model}: {e}")
-            continue
+            print(f"Notice initializing fallback Groq client: {e}")
+
+    for client in clients:
+        for model in candidate_models:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=2500,
+                )
+                raw_content = response.choices[0].message.content or ""
+                if not raw_content and getattr(
+                    response.choices[0].message, "reasoning", None
+                ):
+                    raw_content = response.choices[0].message.reasoning or ""
+                cleaned = re.sub(
+                    r"<think>.*?</think>", "", raw_content, flags=re.DOTALL
+                )
+                cleaned = re.sub(r"<think>.*", "", cleaned, flags=re.DOTALL)
+                if cleaned.strip():
+                    return cleaned.strip(), model, "groq"
+            except Exception as e:
+                print(f"Notice generating response with {model}: {e}")
+                continue
 
     # Fallback to local Ollama if Groq fails
     local_response = generate_local_response(messages, ollama_url, ollama_model)

@@ -1,6 +1,5 @@
 import Conversation from '../models/Conversation.js'
-import QuizState from '../models/QuizState.js'
-import { getConversationQuizStatus } from '../services/quizService.js'
+import { getConversationQuizStatus, publicQuestions } from '../services/quizService.js'
 import { isMongoReady } from '../config/db.js'
 import { isValidObjectId } from '../middleware/validation.js'
 
@@ -85,11 +84,6 @@ export async function getConversationById(request, response) {
       }
     }
 
-    const state = await QuizState.findOne({
-      studentUsername: conversation.studentUsername,
-      subject: conversation.subject,
-    }).lean()
-
     const quizStatus = await getConversationQuizStatus(
       conversation.studentUsername,
       conversation.subject
@@ -97,9 +91,21 @@ export async function getConversationById(request, response) {
 
     return response.json({
       conversation: {
-        ...conversation,
+        _id: conversation._id,
+        title: conversation.title,
+        studentUsername: conversation.studentUsername,
+        subject: conversation.subject,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        messages: conversation.messages,
+        quiz_completed: conversation.quiz_completed,
+        queries: (conversation.queries || []).map(q => ({
+          _id: q._id, query_id: q.query_id, conversation_id: q.conversation_id,
+          query_number: q.query_number, query_text: q.query_text, response: q.response,
+          createdAt: q.createdAt, quiz_questions: publicQuestions(q.quiz_questions),
+        })),
         query_count: conversation.query_count || 0,
-        skip_count: state?.skipCount || 0,
+        skip_count: quizStatus.skipCount,
         quiz_required: quizStatus.quizRequired,
         quiz_status: {
           available: quizStatus.quizRequired,

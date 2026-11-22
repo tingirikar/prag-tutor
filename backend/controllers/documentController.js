@@ -11,30 +11,7 @@ import { uploadDir } from '../middleware/upload.js'
 
 export async function uploadDocuments(request, response) {
   const files = [...(request.files?.file || []), ...(request.files?.files || [])]
-  if (!files.length) return response.status(400).json({ error: 'No PDF file uploaded.' })
-  const subject = String(request.body?.subject || request.query?.subject || '').trim().toUpperCase()
-  if (!subject) return response.status(400).json({ error: 'Subject is required.' })
-
-  // Strict Faculty Subject Authorization
-  if (request.user?.role === 'teacher' && request.user.subject && request.user.subject.toUpperCase() !== subject) {
-    return response.status(403).json({
-      error: `Forbidden: Faculty member for ${request.user.subject} is not authorized to upload documents to ${subject}.`,
-    })
-  }
-
-  const subjFolder = path.join(uploadDir, subject.toLowerCase(), 'documents')
-  await fs.mkdir(subjFolder, { recursive: true })
-
-  // Ensure files are saved to uploads/{subject.toLowerCase()}/documents/
-  for (const file of files) {
-    const targetPath = path.join(subjFolder, file.filename)
-    if (file.path && file.path !== targetPath) {
-      const exists = await fs.stat(file.path).catch(() => null)
-      if (exists) {
-        await fs.rename(file.path, targetPath).catch(() => {})
-      }
-    }
-  }
+  const { subject } = request.uploadDestination
 
   const wantsStream = request.headers.accept?.includes('text/event-stream') || request.query?.stream === 'true'
 

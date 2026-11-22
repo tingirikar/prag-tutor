@@ -19,6 +19,21 @@ import TopicMasteryPanel from '../components/student/TopicMasteryPanel'
 import { apiFetch } from '../api'
 import { ArrowUpRight, LayoutGrid, RefreshCw, GraduationCap, MessageSquare } from 'lucide-react'
 
+const activeQuizKey = 'student_active_quiz'
+
+function readActiveQuiz(conversation, username) {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(activeQuizKey))
+    const quiz = saved?.activeQuiz
+    if (saved?.quizMode === 'active' && quiz?.conversationId === conversation._id &&
+        conversation.studentUsername === username && (!saved.subject || saved.subject === conversation.subject) &&
+        (!saved.username || saved.username === username) && quiz.quizSetIds?.length && quiz.questions?.length) {
+      return quiz
+    }
+  } catch {}
+  return null
+}
+
 export default function StudentDashboard() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -36,7 +51,7 @@ export default function StudentDashboard() {
     }
   }, [navigate])
 
-  const [subjects, setSubjects] = useState([
+  const defaultSubjects = [
     {
       code: 'DSA',
       name: 'Data Structures & Algorithms',
@@ -76,6 +91,8 @@ export default function StudentDashboard() {
   const initialConvId = searchParams.get('c') || sessionStorage.getItem('student_current_conv_id')
   const [currentConversationId, setCurrentConversationId] = useState(() => initialConvId || null)
   const [deletingConvId, setDeletingConvId] = useState(null)
+
+  const [deleteError, setDeleteError] = useState('')
 
   // Chat message & interaction state
   const [messages, setMessages] = useState([])
@@ -179,6 +196,7 @@ export default function StudentDashboard() {
 
   // Handle selecting a subject from the hub
   const selectSubject = async (subj) => {
+    sessionStorage.removeItem(activeQuizKey)
     setSelectedSubject(subj)
     setSubjectViewMode('chat')
     setCurrentConversationId(null)
@@ -205,7 +223,7 @@ export default function StudentDashboard() {
     setInput('')
     sessionStorage.removeItem('student_selected_subject')
     sessionStorage.removeItem('student_current_conv_id')
-    sessionStorage.removeItem('student_active_quiz')
+    sessionStorage.removeItem(activeQuizKey)
     setSearchParams({}, { replace: true })
     setQuizMode(null)
     setActiveQuiz(null)
@@ -256,14 +274,18 @@ export default function StudentDashboard() {
         setQueryCount(data.conversation.query_count || 0)
         setExpandedSources({})
 
+        const savedQuiz = readActiveQuiz(data.conversation, currentUser.username)
         const quizStatus = data.conversation.quiz_status
-        if (quizStatus?.available && quizStatus.questions?.length > 0) {
+        if (savedQuiz) {
+          setActiveQuiz(savedQuiz)
+          setQuizMode('active')
+        } else if (quizStatus?.available && quizStatus.questions?.length > 0) {
           setActiveQuiz({
-            quizSetId: null,
+            quizSetId: quizStatus.quizSetIds?.[0],
             quizSetIds: quizStatus.quizSetIds || [],
             questions: quizStatus.questions,
             total: quizStatus.total || quizStatus.questions.length,
-            compulsory: true,
+            compulsory: Boolean(quizStatus.compulsory),
             conversationId: convId,
           })
           setQuizMode('active')
@@ -280,15 +302,19 @@ export default function StudentDashboard() {
   const confirmDelete = async (convId, e) => {
     e.stopPropagation()
     try {
-      await apiFetch(`/api/conversations/${convId}?studentUsername=${encodeURIComponent(currentUser.username || 'student')}`, { method: 'DELETE' })
+      setDeleteError('')
+      const res = await apiFetch(`/api/conversations/${convId}?studentUsername=${encodeURIComponent(currentUser.username || 'student')}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Could not delete this chat (HTTP ${res.status}).`)
+      }
       setConversations(prev => prev.filter(c => c._id !== convId))
       setDeletingConvId(null)
       if (currentConversationId === convId) {
         startNewChat()
       }
     } catch (err) {
-      console.error('Failed to delete conversation:', err)
-      setDeletingConvId(null)
+      setDeleteError(err.message || 'Could not delete this chat.')
     }
   }
 
@@ -299,6 +325,7 @@ export default function StudentDashboard() {
 
   // Start a new chat thread for current subject
   const startNewChat = async () => {
+    sessionStorage.removeItem(activeQuizKey)
     setCurrentConversationId(null)
     sessionStorage.removeItem('student_current_conv_id')
     if (selectedSubject?.code) {
@@ -343,22 +370,9 @@ export default function StudentDashboard() {
   // Persist active quiz in sessionStorage across refreshes
   useEffect(() => {
     if (quizMode === 'active' && activeQuiz) {
-      sessionStorage.setItem('student_active_quiz', JSON.stringify({ activeQuiz, quizMode }))
-    } else if (quizMode === null || quizMode === 'result') {
-      sessionStorage.removeItem('student_active_quiz')
+      sessionStorage.setItem(activeQuizKey, JSON.stringify({ activeQuiz, quizMode, username: currentUser.username, subject: selectedSubject?.code }))
     }
-  }, [quizMode, activeQuiz])
-
-  // Rehydrate active quiz if student refreshes while taking a quiz
-  useEffect(() => {
-    try {
-      const savedQuiz = JSON.parse(sessionStorage.getItem('student_active_quiz') || 'null')
-      if (savedQuiz?.activeQuiz && savedQuiz.quizMode === 'active') {
-        setActiveQuiz(savedQuiz.activeQuiz)
-        setQuizMode('active')
-      }
-    } catch {}
-  }, [])
+  }, [quizMode, activeQuiz, currentUser.username, selectedSubject?.code])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -408,6 +422,7 @@ export default function StudentDashboard() {
   const handleAsk = async (queryText, chosenLevel = level, topicHint = null) => {
     const query = queryText.trim()
     if (!query || loading || !selectedSubject) return
+    sessionStorage.removeItem(activeQuizKey)
 
     setQuizMode(null)
     setActiveQuiz(null)
@@ -473,7 +488,7 @@ export default function StudentDashboard() {
       }
 
       const answerText = data.response || data.answer || 'No answer generated.'
-      const assistantMessageId = crypto.randomUUID()
+      const assistantMessageId = data.assistantMessageId || crypto.randomUUID()
 
       // Track active conversation ID, query count, and refresh sidebar list
       if (data.conversationId) {
@@ -616,7 +631,7 @@ export default function StudentDashboard() {
     sessionStorage.removeItem('authToken')
     sessionStorage.removeItem('student_selected_subject')
     sessionStorage.removeItem('student_current_conv_id')
-    sessionStorage.removeItem('student_active_quiz')
+    sessionStorage.removeItem(activeQuizKey)
     navigate('/')
   }
 
@@ -743,7 +758,8 @@ export default function StudentDashboard() {
             setSubjectViewMode('chat')
             loadConversation(id)
           }}
-          onAskDelete={setDeletingConvId}
+          deleteError={deleteError}
+          onAskDelete={id => { setDeleteError(''); setDeletingConvId(id) }}
           onConfirmDelete={confirmDelete}
           onCancelDelete={cancelDelete}
           user={currentUser}
@@ -910,7 +926,11 @@ export default function StudentDashboard() {
                 studentUsername={currentUser.username || 'student'}
                 subject={selectedSubject.code}
                 compulsory={activeQuiz.compulsory}
+                currentIndex={activeQuiz.currentIndex || 0}
+                answers={activeQuiz.answers || {}}
+                onProgress={progress => setActiveQuiz(prev => ({ ...prev, ...progress }))}
                 onComplete={(score, total) => {
+                  sessionStorage.removeItem(activeQuizKey)
                   setQuizResult({ score, total })
                   setQuizMode('result')
                   if (selectedSubject?.code) {

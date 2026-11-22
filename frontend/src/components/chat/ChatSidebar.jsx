@@ -5,7 +5,7 @@ import SubjectIcon from '../ui/SubjectIcon'
 import UserFooter from '../layout/UserFooter'
 
 export default function ChatSidebar({
-  subject, conversations, currentConversationId, deletingConvId,
+  subject, conversations, currentConversationId, deletingConvId, deleteError,
   onBack, onNewChat, onLoad, onAskDelete, onConfirmDelete, onCancelDelete,
   user, onLogout, close,
   activeView = 'chat', onViewChange,
@@ -137,6 +137,7 @@ export default function ChatSidebar({
       {target && anchor && (
         <DeletePopover
           anchor={anchor}
+          error={deleteError}
           title={target.title}
           onConfirm={(e) => onConfirmDelete(target._id, e)}
           onCancel={() => onCancelDelete({ stopPropagation() {} })}
@@ -155,7 +156,7 @@ export default function ChatSidebar({
 }
 
 /** Floating confirm card anchored to the right of the trash button. */
-function DeletePopover({ anchor, title, onConfirm, onCancel }) {
+function DeletePopover({ anchor, title, error, onConfirm, onCancel }) {
   const ref = useRef(null)
   const W = 260
   const left = Math.min(anchor.right + 10, window.innerWidth - W - 12)
@@ -192,6 +193,7 @@ function DeletePopover({ anchor, title, onConfirm, onCancel }) {
         </div>
       </div>
       <p className="mt-3 text-[12.5px] leading-relaxed text-dim">This conversation will be permanently removed.</p>
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
       <div className="mt-4 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="h-8 rounded-lg border border-line-strong px-3 text-[13px] font-medium text-dim hover:bg-hover hover:text-fg">
           Cancel

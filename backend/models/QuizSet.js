@@ -83,9 +83,10 @@ const quizSetSchema = new mongoose.Schema({
       message: 'questions must contain 6 question objects.',
     },
   },
+  submissionKey: String,
   status: {
     type: String,
-    enum: ['pending', 'completed', 'skipped'],
+    enum: ['pending', 'submitting', 'completed', 'skipped'],
     default: 'pending',
     index: true,
   },

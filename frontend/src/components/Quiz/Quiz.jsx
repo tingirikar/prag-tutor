@@ -9,10 +9,11 @@ export default function Quiz({
   studentUsername,
   subject,
   onComplete,
+  currentIndex,
+  answers,
+  onProgress,
   compulsory = false,
 }) {
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [answers, setAnswers] = useState({}) // { [question_id]: selectedOption }
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
 
@@ -25,22 +26,19 @@ export default function Quiz({
 
   const handleSelectOption = (option) => {
     if (!submitting && currentQ) {
-      setAnswers((prev) => ({
-        ...prev,
-        [currentQ.question_id]: option,
-      }))
+      onProgress({ answers: { ...answers, [currentQ.question_id]: option } })
     }
   }
 
   const handleNext = () => {
     if (currentIndex < totalQuestions - 1) {
-      setCurrentIndex((prev) => prev + 1)
+      onProgress({ currentIndex: currentIndex + 1 })
     }
   }
 
   const handlePrevious = () => {
     if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1)
+      onProgress({ currentIndex: currentIndex - 1 })
     }
   }
 

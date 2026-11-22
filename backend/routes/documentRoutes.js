@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { upload } from '../middleware/upload.js'
+import { authorizeUpload, stageUpload } from '../middleware/upload.js'
 import {
   uploadDocuments,
   getDocuments,
@@ -14,8 +14,8 @@ router.post(
   '/upload',
   requireAuth,
   requireRole('teacher'),
-  upload.fields([{ name: 'file', maxCount: 20 }, { name: 'files', maxCount: 20 }]),
-  uploadDocuments
+  authorizeUpload,
+  stageUpload(uploadDocuments)
 )
 router.get('/documents', requireAuth, getDocuments)
 router.post('/documents/delete', requireAuth, requireRole('teacher'), deleteDocument)

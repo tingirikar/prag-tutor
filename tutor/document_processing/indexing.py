@@ -55,6 +55,9 @@ def upload_vectors_to_pinecone(
     vectors_to_upsert = []
     total_vecs = len(embeddings)
 
+    if len(chunk_data) != total_vecs:
+        raise ValueError("Each document chunk must have one embedding.")
+
     for i, embedding in enumerate(embeddings):
         vector = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
         chunk = chunk_data[i]
@@ -84,6 +87,13 @@ def upload_vectors_to_pinecone(
         index.upsert(vectors=vectors_to_upsert, namespace=clean_subj)
         if progress_callback:
             progress_callback(total_vecs, total_vecs)
+
+    # A shorter replacement reuses the first IDs. Prune the old tail only
+    # after every new batch has succeeded, including an empty replacement.
+    index.delete(
+        namespace=clean_subj,
+        filter={"document": {"$eq": pdf_file}, "chunk_index": {"$gte": total_vecs}},
+    )
 
 
 def delete_document_data(

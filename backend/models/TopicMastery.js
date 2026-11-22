@@ -142,12 +142,14 @@ const topicMasterySchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // Persist the evidence ID with the update so an interrupted submission can resume.
+  assessmentReviews: [{ key: String, priorMastery: Number, posteriorMastery: Number, _id: false }],
   // Distractor Misconception Tracking
   activeMisconceptions: {
     type: [misconceptionSchema],
     default: [],
   },
-}, { timestamps: true })
+}, { timestamps: true, optimisticConcurrency: true })
 
 // Unique compound index: a student can have at most one mastery record per topic per subject
 topicMasterySchema.index({ studentUsername: 1, subject: 1, normalizedTopic: 1 }, { unique: true })

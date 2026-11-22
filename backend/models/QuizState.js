@@ -18,6 +18,8 @@ const quizStateSchema = new mongoose.Schema({
     }],
     default: [],
   },
+  // One atomic reservation covers every quiz set in a submission, even on standalone MongoDB.
+  claims: { type: Map, of: String, default: () => ({}) },
   skipCount: {
     type: Number,
     default: 0,

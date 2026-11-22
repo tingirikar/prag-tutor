@@ -1,8 +1,8 @@
 import express from 'express'
-import QuizSet from '../models/QuizSet.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 import {
   buildQuiz,
+  publicQuestions,
   completeQuiz,
   getConversationQuizStatus,
   getPendingQuizSets,
@@ -15,18 +15,7 @@ const router = express.Router()
 
 // Secure all quiz routes: require valid JWT
 router.use(requireAuth)
-
-/**
- * Strips correctAnswer from question objects before sending to client.
- */
-function sanitizeQuestions(questions) {
-  if (!Array.isArray(questions)) return []
-  return questions.map((q) => ({
-    question_id: q.question_id,
-    question: q.question,
-    options: q.options,
-  }))
-}
+router.use(['/decision', '/start', '/submit'], requireRole('student'))
 
 /**
  * Strips correctAnswer from subdocument questions inside a QuizSet.
@@ -34,7 +23,7 @@ function sanitizeQuestions(questions) {
 function sanitizeQuizSet(quizSet) {
   const doc = quizSet.toObject ? quizSet.toObject() : { ...quizSet }
   if (Array.isArray(doc.questions)) {
-    doc.questions = sanitizeQuestions(doc.questions)
+    doc.questions = publicQuestions(doc.questions)
   }
   return doc
 }
@@ -44,6 +33,10 @@ function sanitizeQuizSet(quizSet) {
  */
 function handleError(res, error) {
   const message = error?.message || 'Internal server error'
+  if (error?.status) return res.status(error.status).json({ error: message })
+  if (error?.name === 'VersionError' || error?.code === 11000) {
+    return res.status(409).json({ error: 'Another update is in progress. Please retry.' })
+  }
   if (error?.name === 'CastError') {
     return res.status(400).json({ error: 'Invalid ID format.' })
   }
@@ -62,8 +55,8 @@ function checkStudentAccess(req, res, targetUsername, subject) {
       res.status(403).json({ error: 'Forbidden: You cannot access or modify quizzes for other students.' })
       return false
     }
-    if (subject && Array.isArray(req.user.enrolled) && req.user.enrolled.length > 0) {
-      const upperEnrolled = req.user.enrolled.map((s) => String(s).toUpperCase())
+    if (subject) {
+      const upperEnrolled = (req.user.enrolled || []).map((s) => String(s).toUpperCase())
       if (!upperEnrolled.includes(String(subject).toUpperCase())) {
         res.status(403).json({ error: `Forbidden: You are not enrolled in ${subject}.` })
         return false
@@ -103,19 +96,19 @@ router.post('/decision', async (req, res) => {
     }
 
     if (normalizedDecision === 'yes') {
-      const quiz = await buildQuiz(studentUsername, subject, quizSetId)
+      const quiz = await buildQuiz(studentUsername, subject, quizSetId, conversationId)
       return res.status(200).json({
         success: true,
         decision: 'yes',
         conversationId: conversationId || null,
         quizSetIds: quiz.quizSetIds,
-        questions: sanitizeQuestions(quiz.questions),
+        questions: publicQuestions(quiz.questions),
         total: quiz.total,
       })
     }
 
     // decision === 'no'
-    const updatedState = await recordQuizSkip(studentUsername, subject, quizSetId)
+    const updatedState = await recordQuizSkip(studentUsername, subject, quizSetId, conversationId)
 
     return res.status(200).json({
       success: true,
@@ -183,13 +176,13 @@ router.post('/start', async (req, res) => {
       })
     }
 
-    const quiz = await buildQuiz(studentUsername, subject, quizSetId)
+    const quiz = await buildQuiz(studentUsername, subject, quizSetId, conversationId)
 
     return res.status(200).json({
       success: true,
       conversationId: conversationId || null,
       quizSetIds: quiz.quizSetIds,
-      questions: sanitizeQuestions(quiz.questions),
+      questions: publicQuestions(quiz.questions),
       total: quiz.total,
     })
   } catch (error) {
@@ -221,7 +214,7 @@ router.get('/status', async (req, res) => {
     return res.status(200).json({
       success: true,
       ...status,
-      questions: sanitizeQuestions(status.questions),
+      questions: publicQuestions(status.questions),
     })
   } catch (error) {
     return handleError(res, error)

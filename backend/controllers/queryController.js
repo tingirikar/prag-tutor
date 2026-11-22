@@ -3,7 +3,7 @@ import Conversation from '../models/Conversation.js'
 import { isMongoReady } from '../config/db.js'
 import { callPython } from '../services/pythonService.js'
 import { isValidObjectId } from '../middleware/validation.js'
-import { createQuizSet, getConversationQuizStatus, getMasteredTopics, getLearnerProfile, shouldForceQuiz } from '../services/quizService.js'
+import { createQuizSet, getConversationQuizStatus, getMasteredTopics, getLearnerProfile, publicQuestions } from '../services/quizService.js'
 
 function isGenuineExplanation(result) {
   if (!result || typeof result !== 'object') return false
@@ -140,7 +140,7 @@ export async function handleQuery(request, response) {
       conversation.messages.push(userMsg, assistantMsg)
       conversation.query_count = currentQueryNumber
 
-      // 3. Generate exactly 3 MCQs ONLY for a genuine successful tutor explanation
+      // Offer a quiz only for a genuine tutor explanation.
       let currentQuizSet = null
       const explanation = result.response || result.answer || ''
       const isGenuine = isGenuineExplanation(result)
@@ -172,7 +172,7 @@ export async function handleQuery(request, response) {
         query_number: currentQueryNumber,
         query_text: query,
         response: explanation,
-        quiz_questions: currentQuizSet ? currentQuizSet.questions : [],
+        quiz_questions: publicQuestions(currentQuizSet?.questions),
         createdAt: new Date(),
       })
 
@@ -212,6 +212,7 @@ export async function handleQuery(request, response) {
         query_count: conversation.query_count,
         query_id: queryId,
         query_number: currentQueryNumber,
+        assistantMessageId: assistantMsg.id,
         quiz,
       })
     }
@@ -285,27 +286,21 @@ export async function handleQueryImages(request, response) {
 
     // Persist discovered diagrams back to MongoDB conversation so they never disappear on reload
     if (isMongoReady() && conversationId && Array.isArray(result.images) && result.images.length > 0) {
-      try {
-        if (!isValidObjectId(conversationId)) return response.status(400).json({ error: 'Invalid conversation ID.' })
-        const conv = await Conversation.findOne({ _id: conversationId, studentUsername, subject })
-        if (conv && Array.isArray(conv.messages)) {
-          let updated = false
-          for (let i = conv.messages.length - 1; i >= 0; i--) {
-            const m = conv.messages[i]
-            if (m.role === 'assistant' && (!messageId || m.id === messageId)) {
-              m.images = result.images
-              updated = true
-              break
-            }
-          }
-          if (updated) {
-            conv.markModified('messages')
-            await conv.save()
-          }
-        }
-      } catch (err) {
-        console.warn('[Notice] Could not attach diagrams to conversation:', err.message)
+      if (!isValidObjectId(conversationId)) return response.status(400).json({ error: 'Invalid conversation ID.' })
+      const scope = { _id: conversationId, studentUsername, subject }
+      let target = { role: 'assistant', id: messageId }
+      if (!messageId) {
+        // Older clients omit the ID. Resolve the last assistant first so the write still targets one message.
+        const conversation = await Conversation.findOne(scope).select('messages.role messages._id').lean()
+        const lastAssistant = conversation?.messages.findLast(message => message.role === 'assistant')
+        if (!lastAssistant) return response.status(404).json({ error: 'Assistant message not found.' })
+        target = { role: 'assistant', _id: lastAssistant._id }
       }
+      const update = await Conversation.updateOne(
+        { ...scope, messages: { $elemMatch: target } },
+        { $set: { 'messages.$.images': result.images } },
+      )
+      if (!update.matchedCount) return response.status(404).json({ error: 'Assistant message not found.' })
     }
 
     return response.json(result)

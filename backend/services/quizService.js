@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import mongoose from 'mongoose'
 import QuizAttempt from '../models/QuizAttempt.js'
 import QuizSet from '../models/QuizSet.js'
@@ -183,92 +183,6 @@ function parseAndValidateQuestions(rawContent) {
 }
 
 /**
- * Fallback MCQ generator: creates conceptual questions from explanation key terms
- * when all external LLM providers are offline.
- */
-function generateFallbackQuestions(explanation, levelName = 'Medium') {
-  const clean = explanation.replace(/[#*`_\[\]()]/g, ' ').replace(/\s+/g, ' ').trim()
-  const words = clean.split(/\s+/).filter((w) => w.length > 4 && /^[a-zA-Z]+$/.test(w))
-  const keyTerms = Array.from(new Set(words)).slice(0, 8)
-
-  const templates = [
-    {
-      q: (t) => `What is the primary role or conceptual definition of ${t} as described in the lesson?`,
-      correct: (t) => `It serves as a foundational component establishing the core properties of ${t}.`,
-      d1: (t) => `It is an auxiliary mechanism discarded after memory allocation.`,
-      d2: (t) => `It reverses the operational order to guarantee constant time execution.`,
-      d3: (t) => `It is deprecated under standard modern algorithmic constraints.`,
-    },
-    {
-      q: (t) => `In terms of algorithmic behavior, how does ${t} function according to the explanation?`,
-      correct: (t) => `It follows the deterministic rules and constraints specified in the lesson.`,
-      d1: (t) => `It performs random permutations regardless of input structure.`,
-      d2: (t) => `It bypasses typical invariants and executes unconditionally.`,
-      d3: (t) => `It replaces all recursive steps with static memory buffers.`,
-    },
-    {
-      q: (t) => `What is the expected complexity or efficiency characteristic related to ${t}?`,
-      correct: (t) => `It is bounded by the height or structure of the underlying data representation.`,
-      d1: (t) => `It always operates in O(1) time irrespective of input volume.`,
-      d2: (t) => `It suffers exponential degradation in all practical configurations.`,
-      d3: (t) => `It cannot be analyzed using standard asymptotic bounds.`,
-    },
-    {
-      q: (t) => `Which invariant or condition must remain satisfied when manipulating ${t}?`,
-      correct: (t) => `The ordering and structural consistency defined in the explanation.`,
-      d1: (t) => `All nodes or elements must carry strictly identical values.`,
-      d2: (t) => `Every element must be stored in a flat contiguous array without pointers.`,
-      d3: (t) => `Tree height must always equal zero.`,
-    },
-    {
-      q: (t) => `Under what scenario would performance related to ${t} degrade towards worst-case bounds?`,
-      correct: (t) => `When elements are inserted in skewed or unbalanced order without rebalancing.`,
-      d1: (t) => `When the input size is smaller than the system word size.`,
-      d2: (t) => `When accessed concurrently in read-only mode.`,
-      d3: (t) => `When balanced structures like AVL trees are introduced.`,
-    },
-    {
-      q: (t) => `Why is understanding ${t} essential for mastery of this topic at ${levelName} level?`,
-      correct: (t) => `It provides the conceptual foundation for optimizing searches and modifications.`,
-      d1: (t) => `It eliminates the requirement of writing code for data structures.`,
-      d2: (t) => `It converts all data types into primitive integer scalars automatically.`,
-      d3: (t) => `It is only used for hardware graphics pipelines.`,
-    },
-  ]
-
-  const questions = []
-  for (let i = 0; i < 6; i++) {
-    const term = keyTerms[i % Math.max(keyTerms.length, 1)] || 'the algorithm'
-    const tpl = templates[i % templates.length]
-
-    const qText = tpl.q(term)
-    const correctOpt = tpl.correct(term)
-    const optionsPool = [correctOpt, tpl.d1(term), tpl.d2(term), tpl.d3(term)]
-
-    // Rotate options so correct answer isn't always Option A
-    const targetSlot = (i + 1) % 4
-    const finalOptions = [...optionsPool]
-    const temp = finalOptions[0]
-    finalOptions[0] = finalOptions[targetSlot]
-    finalOptions[targetSlot] = temp
-
-    const distractorMisconceptions = {
-      [tpl.d1(term)]: `Confuses ${term} with temporary memory allocation or initialization mechanisms.`,
-      [tpl.d2(term)]: `Assumes ${term} reverses operational flow or guarantees constant time execution.`,
-      [tpl.d3(term)]: `Views ${term} as deprecated or irrelevant under standard operational constraints.`,
-    }
-
-    questions.push({
-      question: qText,
-      options: finalOptions,
-      correctAnswer: correctOpt,
-      distractorMisconceptions,
-    })
-  }
-  return questions
-}
-
-/**
  * 1. generateQuizQuestions(explanation, level, query)
  * Generates exactly 6 high-quality, conceptual MCQs based on the lesson explanation
  * tailored strictly to the user's selected difficulty level.
@@ -321,13 +235,8 @@ export async function generateQuizQuestions(explanation, level = 'beginner', que
     { role: 'user', content: userPrompt },
   ]
 
-  try {
-    const rawContent = await callLLMProvider(messages)
-    return parseAndValidateQuestions(rawContent)
-  } catch (providerError) {
-    console.warn('[quizService] AI provider failed, using derived fallback questions:', providerError.message)
-    return generateFallbackQuestions(explanation, levelInfo.name)
-  }
+  const rawContent = await callLLMProvider(messages)
+  return parseAndValidateQuestions(rawContent)
 }
 
 /**
@@ -379,7 +288,6 @@ export async function createQuizSet({
 /**
  * 3. getQuizState(studentUsername, subject)
  * Retrieves or creates the student's persistent QuizState per student and subject.
- * QuizState contains ONLY: studentUsername, subject, pendingQuizSetIds, skipCount.
  */
 export async function getQuizState(studentUsername, subject) {
   let state = await QuizState.findOne({ studentUsername, subject })
@@ -404,25 +312,47 @@ export async function getQuizState(studentUsername, subject) {
   return state
 }
 
+function quizId(value) {
+  if (!mongoose.isObjectIdOrHexString(value)) {
+    throw Object.assign(new Error('A valid quiz set ID is required.'), { status: 400 })
+  }
+  return String(value).toLowerCase()
+}
+
+function unavailableQuiz() {
+  return Object.assign(new Error('Quiz not found or no longer available.'), { status: 404 })
+}
+
+// Older records have no generation-source field. This option identifies the retired template.
+function isLegacyFallback(quiz) {
+  return quiz.questions.some(q => q.options.includes('It is an auxiliary mechanism discarded after memory allocation.'))
+}
+
+export function publicQuestions(questions = []) {
+  if (!Array.isArray(questions)) return []
+  return questions.filter(Boolean).map(({ question_id, question, options }) => ({ question_id, question, options }))
+}
+
 /**
  * 4. recordQuizSkip(studentUsername, subject, quizSetId)
- * Marks QuizSet as skipped, clears pendingQuizSetIds, and increments skipCount.
+ * Dismisses the named quiz and records the skip once.
  */
-export async function recordQuizSkip(studentUsername, subject, quizSetId) {
+export async function recordQuizSkip(studentUsername, subject, quizSetId, conversationId) {
+  const scope = { studentUsername, subject, _id: quizId(quizSetId) }
+  if (conversationId) scope.conversationId = String(conversationId)
+  const quiz = await QuizSet.findOne(scope)
+  if (!quiz || !['pending', 'skipped'].includes(quiz.status)) throw unavailableQuiz()
   const state = await getQuizState(studentUsername, subject)
-
-  if (quizSetId) {
-    const targetIdStr = quizSetId?._id ? quizSetId._id.toString() : quizSetId.toString()
-    await QuizSet.updateOne({ _id: targetIdStr }, { status: 'skipped' })
-  }
-
-  // Clear pendingQuizSetIds so quizzes are not stacked or carried over
-  state.pendingQuizSetIds = []
-  state.skipCount = (state.skipCount || 0) + 1
-  await state.save()
-
-  console.log(`[QUIZ SKIP] student=${studentUsername} subject=${subject} skipCount=${state.skipCount} quiz dismissed, pending cleared`)
-  return state
+  const slot = 'claims.' + scope._id
+  if (quiz.status === 'skipped' && !state.claims?.has(scope._id)) throw unavailableQuiz()
+  const skipped = await QuizState.findOneAndUpdate(
+    { _id: state._id, [slot]: null },
+    { $set: { [slot]: 'skipped' }, $inc: { skipCount: 1 }, $pull: { pendingQuizSetIds: scope._id } },
+    { new: true },
+  ) || await QuizState.findOne({ _id: state._id, [slot]: 'skipped' })
+  if (!skipped) throw unavailableQuiz()
+  await QuizSet.updateOne({ ...scope, status: 'pending' }, { $set: { status: 'skipped' } })
+  return skipped
 }
 
 /**
@@ -476,31 +406,14 @@ export async function getConversationQuizStatus(studentUsername, subject, curren
  * 8. buildQuiz(studentUsername, subject, currentQuizSetId)
  * Returns the quiz payload for the current query context only.
  */
-export async function buildQuiz(studentUsername, subject, currentQuizSetId = null) {
-  if (!currentQuizSetId) {
-    return {
-      quizSetIds: [],
-      questions: [],
-      total: 0,
-    }
-  }
-
-  const currIdStr = currentQuizSetId?._id ? currentQuizSetId._id.toString() : currentQuizSetId.toString()
-  const quizSet = await QuizSet.findById(currIdStr)
-
-  if (!quizSet) {
-    return {
-      quizSetIds: [],
-      questions: [],
-      total: 0,
-    }
-  }
-
-  const questionsToPresent = (quizSet.questions || []).map((q) => ({
-    question_id: q.question_id,
-    question: q.question,
-    options: q.options,
-  }))
+export async function buildQuiz(studentUsername, subject, currentQuizSetId, conversationId) {
+  const scope = { studentUsername, subject, _id: quizId(currentQuizSetId), status: 'pending' }
+  if (conversationId) scope.conversationId = String(conversationId)
+  const quizSet = await QuizSet.findOne(scope)
+  if (!quizSet || isLegacyFallback(quizSet) || await QuizState.exists({
+    studentUsername, subject, ['claims.' + scope._id]: { $exists: true },
+  })) throw unavailableQuiz()
+  const questionsToPresent = publicQuestions(quizSet.questions)
 
   return {
     quizSetIds: [quizSet._id.toString()],
@@ -598,6 +511,7 @@ export async function applyImplicitPrerequisiteReview({
   subject,
   topic,
   topicAccuracy = 1.0,
+  reviewKey,
 }) {
   if (!studentUsername || !subject || !topic || topicAccuracy < 0.80) {
     return []
@@ -630,6 +544,7 @@ export async function applyImplicitPrerequisiteReview({
         normalizedTopic: normPrereq,
       })
 
+      if (reviewKey && pMastery?.assessmentReviews.some(r => r.key === reviewKey)) continue
       if (pMastery && (pMastery.pKnown != null ? pMastery.pKnown : 0.20) >= 0.50) {
         const currentP = pMastery.pKnown != null ? pMastery.pKnown : 0.50
         const boostedP = Math.min(0.99, Number((currentP + (1.0 - currentP) * 0.08).toFixed(4)))
@@ -642,6 +557,7 @@ export async function applyImplicitPrerequisiteReview({
           pMastery.mastered = true
         }
 
+        if (reviewKey) pMastery.assessmentReviews.push({ key: reviewKey })
         await pMastery.save()
         boostedPrereqs.push({
           topic: pMastery.topic,
@@ -657,6 +573,7 @@ export async function applyImplicitPrerequisiteReview({
 
     return boostedPrereqs
   } catch (err) {
+    if (reviewKey) throw err
     console.warn(`[quizService] Error in applyImplicitPrerequisiteReview for ${topic}:`, err.message)
     return []
   }
@@ -680,14 +597,26 @@ export async function completeQuiz({
   answers = [],
   conversationId = null,
 }) {
-  if (!Array.isArray(quizSetIds) || quizSetIds.length === 0) {
-    throw new Error('quizSetIds array is required for completeQuiz.')
+  if (!Array.isArray(quizSetIds) || !quizSetIds.length) {
+    throw Object.assign(new Error('At least one quiz set ID is required.'), { status: 400 })
+  }
+  const ids = quizSetIds.map(quizId)
+  if (new Set(ids).size !== ids.length || !Array.isArray(answers) ||
+      answers.some(a => !a || typeof a.selectedAnswer !== 'string')) {
+    throw Object.assign(new Error('Invalid quiz submission.'), { status: 400 })
   }
 
-  // Load ONLY the included QuizSets
-  const quizSets = await QuizSet.find({
-    _id: { $in: quizSetIds },
-  })
+  const scope = { studentUsername, subject, _id: { $in: ids } }
+  if (conversationId) scope.conversationId = String(conversationId)
+  const records = await QuizSet.find(scope)
+  if (records.length !== ids.length || records.some(isLegacyFallback)) throw unavailableQuiz()
+  const byId = new Map(records.map(q => [String(q._id), q]))
+  const quizSets = ids.map(id => byId.get(id))
+  const sortedIds = [...ids].sort()
+  const submissionKey = createHash('sha256').update(sortedIds.join(',')).digest('hex')
+  const attemptId = sortedIds[0]
+  const conflict = () => Object.assign(new Error('This quiz has already been submitted or dismissed.'), { status: 409 })
+  if (records.some(q => q.status !== 'pending' && q.submissionKey !== submissionKey)) throw conflict()
 
   // Build authoritative question list
   const allKnownQuestions = []
@@ -708,85 +637,45 @@ export async function completeQuiz({
 
   // Map user answers by question_id or questionIndex
   const answerMap = new Map()
-  if (Array.isArray(answers)) {
-    for (const ans of answers) {
-      if (ans.question_id) {
-        answerMap.set(ans.question_id, ans.selectedAnswer)
-      } else if (typeof ans.questionIndex === 'number' && allKnownQuestions[ans.questionIndex]) {
-        answerMap.set(allKnownQuestions[ans.questionIndex].question_id, ans.selectedAnswer)
-      }
-    }
+  for (const ans of answers) {
+    const questionId = ans.question_id || allKnownQuestions[ans.questionIndex]?.question_id
+    if (questionId) answerMap.set(questionId, ans.selectedAnswer)
   }
 
-  let score = 0
-  const total = allKnownQuestions.length
-  const answeredDetails = []
-  const allDiagnosedMisconceptions = []
-
-  for (let idx = 0; idx < allKnownQuestions.length; idx++) {
-    const qObj = allKnownQuestions[idx]
-    const selected = answerMap.get(qObj.question_id) || ''
-    const isCorrect = String(selected).trim() === String(qObj.correctAnswer).trim()
-    let diagnosed = null
-
-    if (isCorrect) {
-      score += 1
-    } else if (selected && String(selected).trim()) {
-      let foundInMap = null
-      const misconceptionsMap = qObj.distractorMisconceptions
-      if (misconceptionsMap) {
-        if (typeof misconceptionsMap.get === 'function') {
-          foundInMap = misconceptionsMap.get(selected)
-        } else if (typeof misconceptionsMap === 'object') {
-          foundInMap = misconceptionsMap[selected]
-        }
-      }
-
-      if (foundInMap && typeof foundInMap === 'string') {
-        diagnosed = foundInMap.trim()
-      } else {
-        diagnosed = await diagnoseMisconception({
-          topic: qObj.topic,
-          question: qObj.question,
-          selectedAnswer: selected,
-          correctAnswer: qObj.correctAnswer,
-        })
-      }
-
-      allDiagnosedMisconceptions.push({
-        topic: qObj.topic,
-        question: qObj.question,
-        selectedAnswer: selected,
-        correctAnswer: qObj.correctAnswer,
-        misconception: diagnosed,
-      })
-    }
-
-    answeredDetails.push({
-      questionIndex: idx,
-      selectedAnswer: selected,
-      isCorrect,
-      diagnosedMisconception: diagnosed,
-    })
-  }
-
-  // 1. Mark ONLY the included QuizSets as completed
-  for (const qs of quizSets) {
-    qs.status = 'completed'
-    await qs.save()
-  }
-
-  // 2. Update QuizState: remove included QuizSet IDs and reset skipCount to 0
+  // Reserve the whole batch with one compare-and-set. A retry may continue only
+  // if every slot belongs to the same submission. Skips use these same slots.
   const state = await getQuizState(studentUsername, subject)
-  const completedIds = quizSets.map((qs) => qs._id.toString())
+  const emptySlots = {}
+  const claimedSlots = {}
+  for (const id of ids) {
+    emptySlots['claims.' + id] = null
+    claimedSlots['claims.' + id] = submissionKey
+  }
+  const reserved = await QuizState.updateOne({ _id: state._id, ...emptySlots }, {
+    $set: { ...claimedSlots, skipCount: 0 }, $pull: { pendingQuizSetIds: { $in: ids } },
+  })
+  if (!reserved.matchedCount && !await QuizState.exists({ _id: state._id, ...claimedSlots })) throw conflict()
+  await QuizSet.updateMany({ ...scope, status: 'pending' }, { $set: { status: 'submitting', submissionKey } })
 
-  state.pendingQuizSetIds = (state.pendingQuizSetIds || []).filter(
-    (id) => !completedIds.includes(id.toString())
-  )
-  state.skipCount = 0
-  await state.save()
+  let attempt = await QuizAttempt.findById(attemptId)
+  if (!attempt) {
+    const graded = await gradeAnswers(allKnownQuestions, answerMap)
+    // All concurrent scorers share this attempt. The first saved answers are authoritative.
+    attempt = await QuizAttempt.findOneAndUpdate({ _id: attemptId }, { $setOnInsert: {
+      studentUsername, subject, conversationId: quizSets[0].conversationId,
+      quizSetIds: ids, questions: allKnownQuestions, ...graded, completedAt: new Date(),
+    } }, { new: true, upsert: true, runValidators: true })
+  }
 
-  // 3. Learner Model: Group graded questions by topic and evaluate BKT + decay + misconceptions
+  const { answers: answeredDetails } = attempt
+  if (attempt.quizSetIds.map(String).join(',') !== ids.join(',') ||
+      answeredDetails.some((a, i) => a.selectedAnswer !== (answerMap.get(allKnownQuestions[i].question_id) || ''))) {
+    throw conflict()
+  }
+
+  if (records.every(q => q.status === 'completed')) return submissionResult(attempt)
+
+  // Apply the persisted evidence once per topic.
   const topicGroups = new Map()
   for (let idx = 0; idx < allKnownQuestions.length; idx++) {
     const qObj = allKnownQuestions[idx]
@@ -820,90 +709,85 @@ export async function completeQuiz({
   }
 
   const bktUpdates = []
-  const masteredTopics = []
 
   for (const group of topicGroups.values()) {
-    const masteryDoc = await recordTopicMastery({
-      studentUsername,
-      subject,
-      topic: group.originalTopic,
-      observations: group.observations,
-      score: group.score,
-      total: group.total,
-      newMisconceptions: group.newMisconceptions,
+    const review = await recordTopicMastery({
+      studentUsername, subject, topic: group.originalTopic, observations: group.observations,
+      score: group.score, total: group.total, newMisconceptions: group.newMisconceptions,
+      assessmentKey: attemptId,
     })
+    if (review) bktUpdates.push({
+      topic: review.topic, priorMastery: review._priorMastery, posteriorMastery: review._posteriorMastery,
+    })
+  }
 
-    if (masteryDoc) {
-      bktUpdates.push({
-        topic: masteryDoc.topic,
-        priorMastery: masteryDoc._priorMastery != null ? masteryDoc._priorMastery : 0.20,
-        posteriorMastery: masteryDoc.pKnown,
-      })
-      if (masteryDoc.mastered) {
-        masteredTopics.push(masteryDoc.topic)
+  await QuizAttempt.updateOne({ _id: attemptId }, { $set: { bktUpdates } })
+  attempt.bktUpdates = bktUpdates
+  await QuizSet.updateMany({ ...scope, submissionKey, status: 'submitting' }, { $set: { status: 'completed' } })
+  return submissionResult(attempt)
+}
+
+function submissionResult(attempt) {
+  const { score, total, bktUpdates } = attempt
+  const masteredTopics = bktUpdates.filter(b => b.posteriorMastery >= 0.85).map(b => b.topic)
+  const diagnosedMisconceptions = attempt.answers.flatMap((a, i) => {
+    if (!a.diagnosedMisconception) return []
+    const { topic, question, correctAnswer } = attempt.questions[i]
+    return [{ topic, question, selectedAnswer: a.selectedAnswer, correctAnswer, misconception: a.diagnosedMisconception }]
+  })
+  return {
+    success: true, attempt, score, total, correctCount: score, percentage: total ? score / total * 100 : 0,
+    mastered: masteredTopics.length > 0, masteredTopics, bktUpdates, diagnosedMisconceptions,
+  }
+}
+
+async function gradeAnswers(allKnownQuestions, answerMap) {
+  let score = 0
+  const total = allKnownQuestions.length
+  const answeredDetails = []
+
+  for (let idx = 0; idx < allKnownQuestions.length; idx++) {
+    const qObj = allKnownQuestions[idx]
+    const selected = answerMap.get(qObj.question_id) || ''
+    const isCorrect = String(selected).trim() === String(qObj.correctAnswer).trim()
+    let diagnosed = null
+
+    if (isCorrect) {
+      score += 1
+    } else if (selected && String(selected).trim()) {
+      let foundInMap = null
+      const misconceptionsMap = qObj.distractorMisconceptions
+      if (misconceptionsMap) {
+        if (typeof misconceptionsMap.get === 'function') {
+          foundInMap = misconceptionsMap.get(selected)
+        } else if (typeof misconceptionsMap === 'object') {
+          foundInMap = misconceptionsMap[selected]
+        }
+      }
+
+      if (foundInMap && typeof foundInMap === 'string') {
+        diagnosed = foundInMap.trim()
+      } else {
+        diagnosed = await diagnoseMisconception({
+          topic: qObj.topic,
+          question: qObj.question,
+          selectedAnswer: selected,
+          correctAnswer: qObj.correctAnswer,
+        })
       }
     }
 
-    const groupAcc = group.total > 0 ? group.score / group.total : 0
-    if (groupAcc >= 0.80) {
-      await applyImplicitPrerequisiteReview({
-        studentUsername,
-        subject,
-        topic: group.originalTopic,
-        topicAccuracy: groupAcc,
-      })
-    }
+    answeredDetails.push({
+      questionIndex: idx,
+      selectedAnswer: selected,
+      isCorrect,
+      diagnosedMisconception: diagnosed,
+    })
   }
 
-  // 4. Save QuizAttempt
-
-  const attempt = await QuizAttempt.create({
-    studentUsername,
-    subject,
-    conversationId: conversationId ? String(conversationId) : null,
-    quizSetIds: quizSets.map((qs) => qs._id),
-    questions: allKnownQuestions.map((q) => ({
-      topic: q.topic || '',
-      question: q.question,
-      options: q.options,
-      correctAnswer: q.correctAnswer,
-      distractorMisconceptions: q.distractorMisconceptions || {},
-      difficulty: q.difficulty || 'intermediate',
-    })),
-    answers: answeredDetails,
-    score,
-    total,
-    bktUpdates,
-    completedAt: new Date(),
-  })
-
-  const percentage = total > 0 ? (score / total) * 100 : 0
-
-  console.log(
-    `[QUIZ COMPLETED]\n` +
-    `  student=${studentUsername} subject=${subject}\n` +
-    `  score=${score}/${total} (${percentage.toFixed(1)}%)\n` +
-    `  bktUpdates=${JSON.stringify(bktUpdates)}\n` +
-    `  diagnosedMisconceptions=${allDiagnosedMisconceptions.length}\n` +
-    `  masteredTopics=${masteredTopics.join(', ') || 'none'}\n` +
-    `  completedQuizSets=${quizSets.length}\n` +
-    `  remainingPending=${state.pendingQuizSetIds.length}\n` +
-    `  skipCountReset=0`
-  )
-
-  return {
-    success: true,
-    attempt,
-    score,
-    total,
-    correctCount: score,
-    percentage,
-    mastered: masteredTopics.length > 0,
-    masteredTopics,
-    bktUpdates,
-    diagnosedMisconceptions: allDiagnosedMisconceptions,
-  }
+  return { answers: answeredDetails, score, total }
 }
+
 
 /**
  * 10. recordTopicMastery({ studentUsername, subject, topic, observations, score, total, newMisconceptions })
@@ -917,6 +801,7 @@ export async function recordTopicMastery({
   score = 0,
   total = 0,
   newMisconceptions = [],
+  assessmentKey,
 }) {
   if (!topic || !studentUsername || !subject) return null
   const normalizedTopic = normalizeTopicName(topic)
@@ -933,6 +818,18 @@ export async function recordTopicMastery({
     subject,
     normalizedTopic,
   })
+
+  const previous = assessmentKey && existing?.assessmentReviews.find(r => r.key === assessmentKey)
+  const reinforce = topicAccuracy => applyImplicitPrerequisiteReview({
+    studentUsername, subject, topic, topicAccuracy,
+    reviewKey: assessmentKey && assessmentKey + '/' + normalizedTopic,
+  })
+  if (previous) {
+    existing._priorMastery = previous.priorMastery
+    existing._posteriorMastery = previous.posteriorMastery
+    if (total > 0 && score / total >= 0.80) await reinforce(score / total)
+    return existing
+  }
 
   let priorMastery = 0.20
   let currentStability = 7.0
@@ -1006,75 +903,27 @@ export async function recordTopicMastery({
     }
   }
 
-  if (existing) {
-    existing.bestScore = Math.max(existing.bestScore || 0, topicCorrect)
-    existing.total = Math.max(existing.total || 0, topicTotal)
-    existing.pKnown = posteriorMastery
-    existing.effectiveMastery = posteriorMastery
-    existing.needsRefresher = false
-    existing.memoryStability = newStability
-    existing.reviewStreak = newStreak
-    existing.attemptsCount = (existing.attemptsCount || 0) + 1
-    existing.questionsAnswered = (existing.questionsAnswered || 0) + topicTotal
-    existing.mastered = mastered
-    existing.activeMisconceptions = activeMisconceptions
-    if (mastered && !existing.firstMasteredAt) {
-      existing.firstMasteredAt = new Date()
-    }
-    existing.lastAssessedAt = new Date()
-    await existing.save()
+  const mastery = existing || new TopicMastery({ studentUsername, subject, topic: topic.trim(), normalizedTopic })
+  mastery.bestScore = Math.max(mastery.bestScore || 0, topicCorrect)
+  mastery.total = Math.max(mastery.total || 0, topicTotal)
+  mastery.pKnown = posteriorMastery
+  mastery.effectiveMastery = posteriorMastery
+  mastery.needsRefresher = false
+  mastery.memoryStability = newStability
+  mastery.reviewStreak = newStreak
+  mastery.attemptsCount = (mastery.attemptsCount || 0) + 1
+  mastery.questionsAnswered = (mastery.questionsAnswered || 0) + topicTotal
+  mastery.mastered = mastered
+  mastery.activeMisconceptions = activeMisconceptions
+  if (mastered && !mastery.firstMasteredAt) mastery.firstMasteredAt = new Date()
+  mastery.lastAssessedAt = new Date()
+  if (assessmentKey) mastery.assessmentReviews.push({ key: assessmentKey, priorMastery, posteriorMastery })
+  await mastery.save()
 
-    existing._priorMastery = priorMastery
-    console.log(
-      `[BKT LEARNER MODEL] ${studentUsername} | topic="${topic}" | prior=${priorMastery} -> posterior=${posteriorMastery} | mastered=${mastered} | S=${newStability}d | misconceptions=${activeMisconceptions.length}`
-    )
-    if (accuracy >= 0.80) {
-      await applyImplicitPrerequisiteReview({
-        studentUsername,
-        subject,
-        topic,
-        topicAccuracy: accuracy,
-      })
-    }
-    return existing
-  }
-
-  const created = await TopicMastery.create({
-    studentUsername,
-    subject,
-    topic: topic.trim(),
-    normalizedTopic,
-    mastered,
-    bestScore: topicCorrect,
-    total: topicTotal,
-    firstMasteredAt: mastered ? new Date() : null,
-    lastAssessedAt: new Date(),
-    pKnown: posteriorMastery,
-    pLearn: 0.15,
-    pGuess: 0.25,
-    pSlip: 0.10,
-    attemptsCount: 1,
-    questionsAnswered: topicTotal,
-    memoryStability: newStability,
-    reviewStreak: newStreak,
-    effectiveMastery: posteriorMastery,
-    needsRefresher: false,
-    activeMisconceptions,
-  })
-
-  created._priorMastery = priorMastery
-  console.log(
-    `[BKT LEARNER MODEL CREATED] ${studentUsername} | topic="${topic}" | prior=${priorMastery} -> posterior=${posteriorMastery} | mastered=${mastered} | S=${newStability}d | misconceptions=${activeMisconceptions.length}`
-  )
-  if (accuracy >= 0.80) {
-    await applyImplicitPrerequisiteReview({
-      studentUsername,
-      subject,
-      topic,
-      topicAccuracy: accuracy,
-    })
-  }
-  return created
+  mastery._priorMastery = priorMastery
+  mastery._posteriorMastery = posteriorMastery
+  if (accuracy >= 0.80) await reinforce(accuracy)
+  return mastery
 }
 
 

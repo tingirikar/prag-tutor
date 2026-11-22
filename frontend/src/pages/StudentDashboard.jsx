@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import AppShell from '../components/layout/AppShell'
 import NavItem from '../components/layout/NavItem'
@@ -37,7 +37,8 @@ function readActiveQuiz(conversation, username) {
 export default function StudentDashboard() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const messagesEndRef = useRef(null)
+  const feedRef = useRef(null)
+  const followLatest = useRef(true)
 
   // Auth guard & user data
   const [currentUser, setCurrentUser] = useState(() => JSON.parse(sessionStorage.getItem('user') || '{}'))
@@ -253,6 +254,7 @@ export default function StudentDashboard() {
   // Load a saved conversation from MongoDB
   const loadConversation = async (convId, targetSubjectCode = selectedSubject?.code) => {
     if (loading) return
+    followLatest.current = true
     try {
       setLoading(true)
       setQuizMode(null)
@@ -374,11 +376,10 @@ export default function StudentDashboard() {
     }
   }, [quizMode, activeQuiz, currentUser.username, selectedSubject?.code])
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  useEffect(scrollToBottom, [messages, loading, quizMode])
+  useLayoutEffect(() => {
+    const feed = feedRef.current
+    if (feed && followLatest.current) feed.scrollTop = feed.scrollHeight
+  }, [messages, loading, quizMode, subjectViewMode])
 
   // Thinking progress simulation
   useEffect(() => {
@@ -422,6 +423,7 @@ export default function StudentDashboard() {
   const handleAsk = async (queryText, chosenLevel = level, topicHint = null) => {
     const query = queryText.trim()
     if (!query || loading || !selectedSubject) return
+    followLatest.current = true
     sessionStorage.removeItem(activeQuizKey)
 
     setQuizMode(null)
@@ -827,8 +829,14 @@ export default function StudentDashboard() {
         ) : (
           <>
             {/* Messages Feed */}
-            <div className="min-h-0 flex-1 overflow-y-auto scroll-none">
-              <div className="mx-auto w-full max-w-5xl xl:max-w-6xl space-y-6 px-4 py-6 sm:px-8">
+            <div
+              ref={feedRef}
+              onScroll={({ currentTarget: feed }) => {
+                followLatest.current = feed.scrollHeight - feed.clientHeight - feed.scrollTop <= 40
+              }}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-thin [scrollbar-gutter:stable]"
+            >
+              <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-8">
             {messages.length === 0 && !loading && (
               <ChatWelcome
                 subject={selectedSubject}
@@ -841,7 +849,7 @@ export default function StudentDashboard() {
 
             {messages.map((msg, i) => (
               <MessageBubble
-                key={i}
+                key={msg.id || i}
                 msg={msg}
                 index={i}
                 expanded={!!expandedSources[i]}
@@ -860,8 +868,8 @@ export default function StudentDashboard() {
             {messages.length > 0 && !loading && sampleQuestions.length > 0 && (
               <div className="pt-2 animate-rise">
                 <div className="mb-2.5 flex items-center justify-between">
-                  <span className="font-mono text-[11px] font-semibold tracking-[0.14em] text-dim uppercase">
-                    Explore next:
+                  <span className="text-sm font-semibold text-dim">
+                    Explore next
                   </span>
                   <button
                     type="button"
@@ -955,13 +963,12 @@ export default function StudentDashboard() {
               />
             )}
 
-            <div ref={messagesEndRef} />
           </div>
         </div>
 
         {/* Composer area */}
-        <div className="shrink-0 bg-linear-to-t from-ink via-ink to-transparent px-3 pt-2 pb-3 sm:px-6 sm:pb-5">
-          <div className="mx-auto w-full max-w-5xl xl:max-w-6xl">
+        <div className="shrink-0 bg-linear-to-t from-ink via-ink to-transparent pt-2 pb-3 sm:pb-5">
+          <div className="mx-auto w-full max-w-5xl px-4 sm:px-8">
             <Composer
               input={input}
               setInput={setInput}

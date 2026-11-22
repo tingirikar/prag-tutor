@@ -1,11 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 
 @theme {
-  --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --font-serif: 'Fraunces', Georgia, serif;
-  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: system-ui, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --font-serif: Georgia, serif;
+  --font-display: var(--font-sans);
 
   /* Clean, crisp white & cool slate palette (zero yellowish tones) */
   --color-ink: #f8f9fc;
@@ -17,7 +16,7 @@
   --color-line-strong: #cdd4e5;
   --color-fg: #0f1630;
   --color-dim: #454e6e;
-  --color-mute: #7c85a3;
+  --color-mute: #626d87;
   --color-accent: #3247d6;
   --color-accent-strong: #2433ad;
   --color-accent-soft: #3247d614;
@@ -42,12 +41,10 @@
     color: var(--color-fg);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
-    font-feature-settings: 'ss01', 'cv11';
   }
   h1, h2, h3 {
     font-family: var(--font-display);
-    font-variation-settings: 'opsz' 96;
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: -0.02em;
   }
   button {
@@ -175,12 +172,10 @@
   }
   .ink-link:hover { background-size: 100% 1px; }
 
-  .md h1, .md h2, .md h3, .md h4 { font-family: var(--font-display); font-weight: 500; }
-
   /* Assistant markdown */
   .md {
-    font-size: 0.95rem;
-    line-height: 1.75;
+    font-size: 1rem;
+    line-height: 1.65;
     color: var(--color-dim);
     overflow-wrap: anywhere;
   }
@@ -250,11 +245,28 @@
   .md th { background: var(--color-raised); color: var(--color-fg); font-weight: 600; }
   .md .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.4em 0; }
 
-  .mermaid-svg svg {
-    max-width: 100%;
-    height: auto;
+  .diagram-frame {
+    position: relative;
+    height: clamp(12rem, 36dvh, 22rem);
+    overflow: hidden;
+  }
+  .diagram-staging {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .diagram-output {
+    height: 100%;
+    overflow: auto;
+    display: grid;
+    padding: 1rem;
+  }
+  .diagram-output > svg {
     display: block;
-    margin: 0 auto;
+    margin: auto;
+    height: auto;
   }
 }
 

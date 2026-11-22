@@ -53,7 +53,7 @@ export default function AppShell({ sidebar, mobileTitle, children }) {
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[280px] shrink-0 flex-col rail-dark transition-transform duration-300 ease-out lg:relative lg:w-[var(--rail-w)] lg:translate-x-0 lg:transition-none ${open ? 'translate-x-0' : '-translate-x-full'} ${collapsed ? 'lg:hidden' : ''}`}
+        className={`fixed inset-y-0 left-0 z-50 flex w-[280px] shrink-0 flex-col rail-dark transition-transform duration-300 ease-out lg:visible lg:relative lg:w-[var(--rail-w)] lg:translate-x-0 lg:transition-none ${open ? 'visible translate-x-0' : 'invisible -translate-x-full'} ${collapsed ? 'lg:hidden' : ''}`}
       >
         <button
           type="button"

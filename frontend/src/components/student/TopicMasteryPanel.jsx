@@ -7,9 +7,6 @@ import {
   Sparkles,
   ArrowUpRight,
   Search,
-  GraduationCap,
-  Flame,
-  Filter,
   RefreshCw,
   ChevronRight,
   TrendingUp,
@@ -116,21 +113,36 @@ export default function TopicMasteryPanel({
 
   const { stats } = masteryData
 
+  const metrics = [
+    { label: 'Curriculum mastered', value: stats.progressPercentage + '%', icon: TrendingUp, color: 'bg-accent-soft text-accent', detail: stats.masteredCount + ' of ' + stats.totalTopics + ' topics' },
+    { label: 'Mastered topics', value: stats.masteredCount, icon: CheckCircle2, color: 'bg-emerald-50 text-emerald-700' },
+    { label: 'Topics to learn', value: stats.remainingCount, icon: Clock, color: 'bg-amber-50 text-amber-700' },
+    { label: 'Average quiz score', value: stats.masteredCount ? stats.averageScore + '%' : '\u2014', icon: Award, color: 'bg-violet-50 text-violet-700', detail: 'Best scores on mastered topics' },
+  ]
+  const filters = [
+    { id: 'all', label: 'All topics', count: masteryData.allTopics.length },
+    { id: 'completed', label: 'Mastered', count: masteryData.masteredTopics.length },
+    { id: 'remaining', label: 'To learn', count: masteryData.remainingTopics.length },
+  ]
+  let emptyTitle = 'No topics in this subject yet'
+  let emptyDetail = 'Topics appear here when your teacher adds them to the syllabus.'
+  if (masteryData.allTopics.length && searchQuery.trim()) {
+    emptyTitle = 'No matching topics'
+    emptyDetail = 'Try another topic name or prerequisite.'
+  } else if (masteryData.allTopics.length && filter === 'completed') {
+    emptyTitle = 'No mastered topics yet'
+    emptyDetail = 'Take a topic quiz to record your progress.'
+  } else if (masteryData.allTopics.length && filter === 'remaining') {
+    emptyTitle = 'All topics mastered'
+    emptyDetail = 'You have completed the topics in this syllabus.'
+  }
+
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-8 sm:px-8">
-      {/* Subject Header & Subject Selector Pills */}
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="@container mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.16em] text-accent uppercase">
-            <GraduationCap size={15} />
-            <span>Learner Model • Curriculum Mastery</span>
-          </div>
-          <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-fg sm:text-3xl">
-            Topic Progress & Completed Syllabus
-          </h1>
-          <p className="mt-1 text-sm text-dim">
-            Track topics you have mastered through adaptive quizzes and see what to learn next.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">Topic mastery</h1>
+          <p className="mt-1 text-sm text-dim">Review your progress and choose a topic to study.</p>
         </div>
 
         {/* Subject Pills */}
@@ -142,6 +154,7 @@ export default function TopicMasteryPanel({
                 <button
                   key={sub.code}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => setSelectedSubjectCode(sub.code)}
                   className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
                     active
@@ -158,151 +171,46 @@ export default function TopicMasteryPanel({
         )}
       </div>
 
-      {/* Progress Stat Cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Progress % Card */}
-        <div className="relative overflow-hidden rounded-2xl border border-line bg-panel p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10.5px] font-semibold tracking-[0.16em] text-mute uppercase">
-              Curriculum Mastered
-            </span>
-            <span className="grid size-8 place-items-center rounded-xl bg-accent/10 text-accent">
-              <TrendingUp size={16} />
-            </span>
+      <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
+        {metrics.map(({ label, value, icon: Icon, color, detail }) => (
+          <div key={label} className="rounded-2xl border border-line bg-panel p-4 shadow-xs">
+            <div className="flex min-h-10 items-center justify-between gap-2">
+              <span className="text-sm font-medium leading-snug text-dim">{label}</span>
+              <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${color}`}><Icon size={15} /></span>
+            </div>
+            <p className="mt-2 text-3xl font-semibold tracking-tight text-fg tabular-nums">{value}</p>
+            {detail && <p className="mt-1 text-xs text-dim">{detail}</p>}
+            {label === 'Curriculum mastered' && (
+              <div className="mt-2 h-1 overflow-hidden rounded-full bg-raised">
+                <div className="h-full bg-accent" style={{ width: Math.min(stats.progressPercentage, 100) + '%' }} />
+              </div>
+            )}
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-bold tracking-tight text-fg">
-              {stats.progressPercentage}%
-            </span>
-            <span className="text-xs text-dim">
-              ({stats.masteredCount} of {stats.totalTopics} topics)
-            </span>
-          </div>
-          {/* Progress bar */}
-          <div className="mt-3.5 h-2 w-full overflow-hidden rounded-full bg-raised">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-accent to-emerald-400 transition-all duration-700 ease-out"
-              style={{ width: `${Math.min(stats.progressPercentage, 100)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Completed Topics */}
-        <div className="relative overflow-hidden rounded-2xl border border-line bg-panel p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10.5px] font-semibold tracking-[0.16em] text-mute uppercase">
-              Completed Topics
-            </span>
-            <span className="grid size-8 place-items-center rounded-xl bg-emerald-500/10 text-emerald-400">
-              <CheckCircle2 size={16} />
-            </span>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-bold tracking-tight text-emerald-400">
-              {stats.masteredCount}
-            </span>
-            <span className="text-xs text-dim">topics mastered</span>
-          </div>
-          <p className="mt-3 text-[12px] text-mute">
-            {stats.masteredCount > 0
-              ? 'Proven mastery via passed quizzes (>50%)'
-              : 'Pass subject quizzes to master topics'}
-          </p>
-        </div>
-
-        {/* Remaining Topics */}
-        <div className="relative overflow-hidden rounded-2xl border border-line bg-panel p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10.5px] font-semibold tracking-[0.16em] text-mute uppercase">
-              Remaining Topics
-            </span>
-            <span className="grid size-8 place-items-center rounded-xl bg-amber-500/10 text-amber-400">
-              <Clock size={16} />
-            </span>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-bold tracking-tight text-amber-300">
-              {stats.remainingCount}
-            </span>
-            <span className="text-xs text-dim">topics pending</span>
-          </div>
-          <p className="mt-3 text-[12px] text-mute">
-            Ready to study and assess with your AI tutor
-          </p>
-        </div>
-
-        {/* Mastery Accuracy */}
-        <div className="relative overflow-hidden rounded-2xl border border-line bg-panel p-5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10.5px] font-semibold tracking-[0.16em] text-mute uppercase">
-              Avg Mastery Score
-            </span>
-            <span className="grid size-8 place-items-center rounded-xl bg-purple-500/10 text-purple-400">
-              <Award size={16} />
-            </span>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-display text-3xl font-bold tracking-tight text-purple-300">
-              {stats.averageScore ? `${stats.averageScore}%` : '—'}
-            </span>
-            <span className="text-xs text-dim">quiz accuracy</span>
-          </div>
-          <p className="mt-3 text-[12px] text-mute">
-            Best scores across completed topics
-          </p>
-        </div>
+        ))}
       </div>
 
-      {/* Control Bar: Filters + Search + Refresh */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-line bg-panel p-3.5 shadow-xs sm:flex-row sm:items-center sm:justify-between">
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scroll-none">
-          <button
-            type="button"
-            onClick={() => setFilter('all')}
-            className={`rounded-xl px-3 py-1.5 text-xs font-medium transition ${
-              filter === 'all'
-                ? 'bg-fg text-bg font-semibold'
-                : 'text-dim hover:bg-hover hover:text-fg'
-            }`}
-          >
-            All Topics ({masteryData.allTopics.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('completed')}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
-              filter === 'completed'
-                ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40 font-semibold'
-                : 'text-dim hover:bg-hover hover:text-fg'
-            }`}
-          >
-            <CheckCircle2 size={13} className="text-emerald-400" />
-            <span>Mastered ({masteryData.masteredTopics.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('remaining')}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
-              filter === 'remaining'
-                ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40 font-semibold'
-                : 'text-dim hover:bg-hover hover:text-fg'
-            }`}
-          >
-            <Clock size={13} className="text-amber-400" />
-            <span>To Learn ({masteryData.remainingTopics.length})</span>
-          </button>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-panel p-3 shadow-xs">
+        <div role="group" aria-label="Filter topics" className="flex flex-wrap items-center gap-1">
+          {filters.map(({ id, label, count }) => (
+            <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}
+              className={`rounded-lg px-2.5 py-2 text-sm font-medium ${filter === id
+                ? 'bg-fg text-white'
+                : 'text-dim hover:bg-hover hover:text-fg'}`}>
+              {label} ({count})
+            </button>
+          ))}
         </div>
 
         {/* Search & Refresh */}
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-64">
+        <div className="flex w-full items-center gap-2 @2xl:w-auto">
+          <div className="relative min-w-0 flex-1 @2xl:w-56">
             <Search
               size={14}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute"
             />
             <input
               type="text"
+              aria-label="Search topics"
               placeholder="Search topics..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -328,7 +236,7 @@ export default function TopicMasteryPanel({
           <span className="text-sm">Loading your topic mastery records...</span>
         </div>
       ) : error ? (
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-center text-sm text-red-300">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-center text-sm text-danger">
           <p>{error}</p>
           <button
             type="button"
@@ -344,18 +252,10 @@ export default function TopicMasteryPanel({
             <BookOpen size={24} />
           </div>
           <h3 className="mt-4 font-display text-lg font-bold text-fg">
-            {filter === 'completed'
-              ? 'No Mastered Topics Yet'
-              : filter === 'remaining'
-              ? 'All Topics Mastered!'
-              : 'No Topics Found'}
+            {emptyTitle}
           </h3>
-          <p className="mx-auto mt-1.5 max-w-sm text-xs leading-relaxed text-dim">
-            {filter === 'completed'
-              ? 'Start learning and taking checkpoint quizzes with your AI tutor to master your first topics!'
-              : filter === 'remaining'
-              ? 'Congratulations! You have completed all syllabus topics for this subject.'
-              : 'No topics matched your search criteria.'}
+          <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-dim">
+            {emptyDetail}
           </p>
         </div>
       ) : (
@@ -380,12 +280,12 @@ export default function TopicMasteryPanel({
                   {/* Status row */}
                   <div className="flex items-center justify-between gap-1.5 flex-wrap">
                     {topicItem.needsRefresher ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-amber-500/30">
-                        <RefreshCw size={11} className="animate-spin-slow text-amber-400" />
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-500/30">
+                        <RefreshCw size={11} className="animate-spin-slow text-amber-800" />
                         <span>Needs Refresher</span>
                       </span>
                     ) : isCompleted ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400 ring-1 ring-emerald-500/25">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-500/25">
                         <CheckCircle2 size={12} />
                         <span>Mastered</span>
                       </span>
@@ -403,7 +303,7 @@ export default function TopicMasteryPanel({
                         </span>
                       )}
                       {isCompleted && topicItem.bestScore !== undefined && (
-                        <span className="font-mono text-[11px] font-semibold text-emerald-300">
+                        <span className="font-mono text-[11px] font-semibold text-emerald-700">
                           {topicItem.bestScore}/{topicItem.total}
                         </span>
                       )}
@@ -418,7 +318,7 @@ export default function TopicMasteryPanel({
                   {/* Diagnosed Misconception Notice */}
                   {topicItem.activeMisconceptions && topicItem.activeMisconceptions.length > 0 && (
                     <div className="mt-2.5 rounded-xl border border-amber-500/25 bg-amber-500/5 p-2.5 text-[11.5px]">
-                      <span className="font-semibold text-amber-400">Diagnosed Misconception:</span>
+                      <span className="font-semibold text-amber-800">Diagnosed Misconception:</span>
                       <p className="mt-1 text-dim italic leading-snug">
                         "{typeof topicItem.activeMisconceptions[0] === 'object' ? topicItem.activeMisconceptions[0].misconception : topicItem.activeMisconceptions[0]}"
                       </p>
@@ -429,7 +329,7 @@ export default function TopicMasteryPanel({
                   <div className="mt-2.5 space-y-1.5">
                     {isCompleted && topicItem.firstMasteredAt && (
                       <div className="flex items-center gap-1.5 text-[11.5px] text-mute">
-                        <Award size={12} className="text-emerald-400" />
+                        <Award size={12} className="text-emerald-700" />
                         <span>Mastered on {formatDate(topicItem.firstMasteredAt)}</span>
                       </div>
                     )}
@@ -450,12 +350,12 @@ export default function TopicMasteryPanel({
                                 key={pIdx}
                                 className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ${
                                   isPCompleted
-                                    ? 'bg-emerald-500/10 text-emerald-300'
+                                    ? 'bg-emerald-500/10 text-emerald-700'
                                     : 'bg-raised text-dim'
                                 }`}
                               >
                                 {isPCompleted ? (
-                                  <CheckCircle2 size={10} className="text-emerald-400" />
+                                  <CheckCircle2 size={10} className="text-emerald-700" />
                                 ) : (
                                   <span className="size-1 rounded-full bg-mute" />
                                 )}
@@ -483,7 +383,7 @@ export default function TopicMasteryPanel({
                       className="group/btn flex w-full items-center justify-between text-xs font-medium text-dim transition hover:text-accent"
                     >
                       <span className="flex items-center gap-1.5">
-                        <Sparkles size={13} className="text-emerald-400" />
+                        <Sparkles size={13} className="text-emerald-700" />
                         <span>Review & Drill</span>
                       </span>
                       <ArrowUpRight

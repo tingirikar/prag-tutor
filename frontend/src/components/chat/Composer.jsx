@@ -22,7 +22,7 @@ export default function Composer({
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-[24px] border border-line-strong bg-panel shadow-[0_1px_0_#fff_inset,0_24px_60px_-30px_#13172659] transition-all duration-300 focus-within:-translate-y-0.5 focus-within:border-accent/45 focus-within:shadow-[0_0_0_5px_#3247d612,0_30px_70px_-30px_#13172666]"
+      className="rounded-[24px] border border-line-strong bg-panel shadow-[0_1px_0_#fff_inset,0_24px_60px_-30px_#13172659] transition-[border-color,box-shadow] duration-200 focus-within:border-accent/45 focus-within:shadow-[0_0_0_5px_#3247d612,0_30px_70px_-30px_#13172666]"
     >
       <textarea
         ref={ref}

@@ -327,6 +327,7 @@ export default function StudentDashboard() {
 
   // Start a new chat thread for current subject
   const startNewChat = async () => {
+    setSubjectViewMode('chat')
     sessionStorage.removeItem(activeQuizKey)
     setCurrentConversationId(null)
     sessionStorage.removeItem('student_current_conv_id')
@@ -766,8 +767,6 @@ export default function StudentDashboard() {
           onCancelDelete={cancelDelete}
           user={currentUser}
           onLogout={logout}
-          activeView={subjectViewMode}
-          onViewChange={setSubjectViewMode}
         />
       )}
     >
@@ -821,8 +820,8 @@ export default function StudentDashboard() {
           <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
             <TopicMasteryPanel
               user={currentUser}
-              subjects={subjects}
-              initialSubject={selectedSubject}
+              key={selectedSubject.code}
+              subject={selectedSubject}
               onStudyTopic={handleStudyTopicFromMastery}
             />
           </div>

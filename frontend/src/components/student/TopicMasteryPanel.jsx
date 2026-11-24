@@ -17,12 +17,11 @@ import { apiFetch } from '../../api'
 export default function TopicMasteryPanel({
   user,
   subjects = [],
-  initialSubject = null,
+  subject = null,
   onStudyTopic = () => {},
 }) {
-  const [selectedSubjectCode, setSelectedSubjectCode] = useState(
-    initialSubject?.code || subjects[0]?.code || 'DSA'
-  )
+  const [hubSubjectCode, setHubSubjectCode] = useState(subjects[0]?.code || 'DSA')
+  const selectedSubjectCode = subject?.code || hubSubjectCode
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [masteryData, setMasteryData] = useState({
@@ -33,12 +32,6 @@ export default function TopicMasteryPanel({
   })
   const [filter, setFilter] = useState('all') // 'all' | 'completed' | 'remaining'
   const [searchQuery, setSearchQuery] = useState('')
-
-  useEffect(() => {
-    if (initialSubject?.code) {
-      setSelectedSubjectCode(initialSubject.code)
-    }
-  }, [initialSubject])
 
   const fetchMastery = async (subjectCode) => {
     setLoading(true)
@@ -72,11 +65,11 @@ export default function TopicMasteryPanel({
   }, [selectedSubjectCode])
 
   const currentSubjectObj = useMemo(() => {
-    return subjects.find((s) => s.code === selectedSubjectCode) || {
+    return subject || subjects.find((s) => s.code === selectedSubjectCode) || {
       code: selectedSubjectCode,
       name: selectedSubjectCode,
     }
-  }, [subjects, selectedSubjectCode])
+  }, [subject, subjects, selectedSubjectCode])
 
   // Filter & search topics
   const displayedTopics = useMemo(() => {
@@ -146,7 +139,7 @@ export default function TopicMasteryPanel({
         </div>
 
         {/* Subject Pills */}
-        {subjects.length > 0 && (
+        {!subject && subjects.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-line bg-panel/80 p-1.5 shadow-xs backdrop-blur-sm">
             {subjects.map((sub) => {
               const active = sub.code === selectedSubjectCode
@@ -155,7 +148,7 @@ export default function TopicMasteryPanel({
                   key={sub.code}
                   type="button"
                   aria-pressed={active}
-                  onClick={() => setSelectedSubjectCode(sub.code)}
+                  onClick={() => setHubSubjectCode(sub.code)}
                   className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium transition-all ${
                     active
                       ? 'bg-accent text-white shadow-xs font-semibold'

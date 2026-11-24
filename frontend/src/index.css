@@ -311,3 +311,13 @@
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .mastery-panel, .mastery-results {
+    animation: mastery-enter 180ms ease-out;
+  }
+}
+@keyframes mastery-enter {
+  from { opacity: 0.5; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

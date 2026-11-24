@@ -31,13 +31,13 @@ export default function Composer({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
             e.preventDefault()
-            onSubmit(e)
+            if (!loading) onSubmit(e)
           }
         }}
         placeholder={placeholder}
-        disabled={loading}
+        aria-label="Message the tutor"
         className="scroll-none block max-h-[200px] w-full resize-none bg-transparent px-4 pt-4 pb-2 text-[15px] leading-relaxed text-fg placeholder:text-mute focus:outline-none disabled:opacity-60 sm:px-5"
       />
 

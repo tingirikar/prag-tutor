@@ -17,7 +17,7 @@ import QuizInvite from '../components/Quiz/QuizInvite'
 import QuizResult from '../components/Quiz/QuizResult'
 import TopicMasteryPanel from '../components/student/TopicMasteryPanel'
 import { apiFetch } from '../api'
-import { ArrowUpRight, LayoutGrid, RefreshCw, GraduationCap, MessageSquare } from 'lucide-react'
+import { ArrowDown, ArrowUpRight, LayoutGrid, RefreshCw, GraduationCap, MessageSquare } from 'lucide-react'
 
 const activeQuizKey = 'student_active_quiz'
 
@@ -39,6 +39,15 @@ export default function StudentDashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const feedRef = useRef(null)
   const followLatest = useRef(true)
+  const openAtReply = useRef(false)
+  const latestReply = useRef(null)
+  const [showJump, setShowJump] = useState(false)
+
+  const trackReadingPosition = (feed) => {
+    const atBottom = feed.scrollHeight - feed.clientHeight - feed.scrollTop <= 40
+    followLatest.current = atBottom
+    setShowJump(!atBottom)
+  }
 
   // Auth guard & user data
   const [currentUser, setCurrentUser] = useState(() => JSON.parse(sessionStorage.getItem('user') || '{}'))
@@ -379,7 +388,21 @@ export default function StudentDashboard() {
 
   useLayoutEffect(() => {
     const feed = feedRef.current
-    if (feed && followLatest.current) feed.scrollTop = feed.scrollHeight
+    if (feed) {
+      if (followLatest.current) {
+        if (openAtReply.current && latestReply.current) {
+          // Keep the beginning of a long answer in view when it arrives.
+          feed.scrollTop += latestReply.current.getBoundingClientRect().top - feed.getBoundingClientRect().top - 16
+        } else {
+          feed.scrollTop = feed.scrollHeight
+        }
+      }
+      trackReadingPosition(feed)
+    } else {
+      followLatest.current = true
+      setShowJump(false)
+    }
+    openAtReply.current = false
   }, [messages, loading, quizMode, subjectViewMode])
 
   // Thinking progress simulation
@@ -492,6 +515,7 @@ export default function StudentDashboard() {
 
       const answerText = data.response || data.answer || 'No answer generated.'
       const assistantMessageId = data.assistantMessageId || crypto.randomUUID()
+      openAtReply.current = true
 
       // Track active conversation ID, query count, and refresh sidebar list
       if (data.conversationId) {
@@ -771,9 +795,9 @@ export default function StudentDashboard() {
       )}
     >
       <div className="flex h-full flex-col">
-        {/* Desktop header */}
-        <div className="hidden h-14 shrink-0 items-center justify-between border-b border-line px-6 lg:flex in-[.rail-collapsed]:pl-16">
-          <div className="flex min-w-0 items-center gap-2.5 text-sm">
+        {/* Subject workspace navigation */}
+        <div className="flex shrink-0 items-center justify-center border-b border-line px-3 py-2 lg:h-14 lg:justify-between lg:px-6 lg:in-[.rail-collapsed]:pl-16">
+          <div className="hidden min-w-0 items-center gap-2.5 text-sm lg:flex">
             <span className="text-accent"><SubjectIcon code={selectedSubject.code} size={16} /></span>
             <span className="font-medium text-fg">{selectedSubject.name}</span>
             <span className="text-mute">/</span>
@@ -785,33 +809,23 @@ export default function StudentDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 rounded-xl border border-line bg-panel p-1 text-xs">
-              <button
-                type="button"
-                onClick={() => setSubjectViewMode('chat')}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 font-medium transition ${
-                  subjectViewMode === 'chat'
-                    ? 'bg-accent text-white font-semibold shadow-2xs'
-                    : 'text-dim hover:text-fg'
-                }`}
-              >
-                <MessageSquare size={13} />
-                <span>Tutor Chat</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSubjectViewMode('mastery')}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1 font-medium transition ${
-                  subjectViewMode === 'mastery'
-                    ? 'bg-accent text-white font-semibold shadow-2xs'
-                    : 'text-dim hover:text-accent'
-                }`}
-              >
-                <GraduationCap size={13} />
-                <span>Completed Topics</span>
-              </button>
+            <div role="group" aria-label="Subject view" className="relative isolate grid grid-cols-2 rounded-xl border border-line bg-panel p-1 text-xs">
+              <div aria-hidden="true" className="pointer-events-none absolute inset-1 -z-10">
+                <div className={`h-full w-1/2 rounded-lg bg-accent shadow-xs motion-safe:transition-transform motion-safe:duration-200 ${subjectViewMode === 'mastery' ? 'translate-x-full' : ''}`} />
+              </div>
+              {[
+                { mode: 'chat', label: 'Tutor Chat', Icon: MessageSquare },
+                { mode: 'mastery', label: 'Completed Topics', Icon: GraduationCap },
+              ].map(({ mode, label, Icon }) => (
+                <button key={mode} type="button" aria-pressed={subjectViewMode === mode}
+                  onClick={() => setSubjectViewMode(mode)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 font-medium lg:py-1 ${subjectViewMode === mode ? 'text-white' : 'text-dim hover:text-fg'}`}>
+                  <Icon size={13} />
+                  {label}
+                </button>
+              ))}
             </div>
-            <span className="font-mono text-[11px] text-mute">{selectedSubject.teacherName || selectedSubject.teacherUsername}</span>
+            <span className="font-mono text-[11px] text-mute hidden lg:inline">{selectedSubject.teacherName || selectedSubject.teacherUsername}</span>
           </div>
         </div>
 
@@ -830,9 +844,10 @@ export default function StudentDashboard() {
             {/* Messages Feed */}
             <div
               ref={feedRef}
-              onScroll={({ currentTarget: feed }) => {
-                followLatest.current = feed.scrollHeight - feed.clientHeight - feed.scrollTop <= 40
-              }}
+              aria-label="Chat messages"
+              role="region"
+              tabIndex={0}
+              onScroll={({ currentTarget }) => trackReadingPosition(currentTarget)}
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-thin [scrollbar-gutter:stable]"
             >
               <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6 sm:px-8">
@@ -850,6 +865,7 @@ export default function StudentDashboard() {
               <MessageBubble
                 key={msg.id || i}
                 msg={msg}
+                replyRef={i === messages.length - 1 ? latestReply : undefined}
                 index={i}
                 expanded={!!expandedSources[i]}
                 onToggleSources={toggleSources}
@@ -966,7 +982,16 @@ export default function StudentDashboard() {
         </div>
 
         {/* Composer area */}
-        <div className="shrink-0 bg-linear-to-t from-ink via-ink to-transparent pt-2 pb-3 sm:pb-5">
+        <div className="relative shrink-0 bg-linear-to-t from-ink via-ink to-transparent pt-2 pb-3 sm:pb-5">
+          {showJump && messages.length > 0 && (
+            <button type="button" onClick={() => {
+              const feed = feedRef.current
+              feed.focus({ preventScroll: true })
+              feed.scrollTo({ top: feed.scrollHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+            }} className="absolute bottom-full left-1/2 z-10 mb-2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-panel px-3.5 py-2 text-xs font-medium text-fg shadow-md transition-colors hover:border-accent hover:text-accent">
+              <ArrowDown size={14} /> Jump to latest
+            </button>
+          )}
           <div className="mx-auto w-full max-w-5xl px-4 sm:px-8">
             <Composer
               input={input}

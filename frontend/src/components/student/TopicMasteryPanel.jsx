@@ -131,7 +131,7 @@ export default function TopicMasteryPanel({
   }
 
   return (
-    <div className="@container mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+    <div className="mastery-panel @container mx-auto w-full max-w-6xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">Topic mastery</h1>
@@ -171,11 +171,11 @@ export default function TopicMasteryPanel({
               <span className="text-sm font-medium leading-snug text-dim">{label}</span>
               <span className={`grid size-7 shrink-0 place-items-center rounded-lg ${color}`}><Icon size={15} /></span>
             </div>
-            <p className="mt-2 text-3xl font-semibold tracking-tight text-fg tabular-nums">{value}</p>
-            {detail && <p className="mt-1 text-xs text-dim">{detail}</p>}
+            <p className="mt-2 text-3xl font-semibold tracking-tight text-fg tabular-nums">{loading ? <span aria-hidden="true" className="skeleton inline-block h-7 w-14 rounded-md" /> : error ? '?' : value}</p>
+            {detail && !loading && !error && <p className="mt-1 text-xs text-dim">{detail}</p>}
             {label === 'Curriculum mastered' && (
               <div className="mt-2 h-1 overflow-hidden rounded-full bg-raised">
-                <div className="h-full bg-accent" style={{ width: Math.min(stats.progressPercentage, 100) + '%' }} />
+                <div className="h-full bg-accent motion-safe:transition-[width] motion-safe:duration-500" style={{ width: (loading || error ? 0 : Math.min(stats.progressPercentage, 100)) + '%' }} />
               </div>
             )}
           </div>
@@ -189,7 +189,7 @@ export default function TopicMasteryPanel({
               className={`rounded-lg px-2.5 py-2 text-sm font-medium ${filter === id
                 ? 'bg-fg text-white'
                 : 'text-dim hover:bg-hover hover:text-fg'}`}>
-              {label} ({count})
+              {label}{!loading && !error && ` (${count})`}
             </button>
           ))}
         </div>
@@ -202,7 +202,7 @@ export default function TopicMasteryPanel({
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute"
             />
             <input
-              type="text"
+              type="search"
               aria-label="Search topics"
               placeholder="Search topics..."
               value={searchQuery}
@@ -224,9 +224,16 @@ export default function TopicMasteryPanel({
 
       {/* Topics Content List */}
       {loading ? (
-        <div className="flex h-64 flex-col items-center justify-center gap-3 text-dim">
-          <RefreshCw size={24} className="animate-spin text-accent" />
-          <span className="text-sm">Loading your topic mastery records...</span>
+        <div role="status" className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+          <span className="sr-only">Loading topic mastery</span>
+          {[0, 1, 2].map((index) => (
+            <div key={index} aria-hidden="true" className="rounded-2xl border border-line bg-panel p-5">
+              <div className="skeleton h-4 w-16 rounded-full" />
+              <div className="skeleton mt-4 h-5 w-3/4 rounded" />
+              <div className="skeleton mt-8 h-3 w-1/2 rounded" />
+              <div className="skeleton mt-6 h-8 rounded-xl" />
+            </div>
+          ))}
         </div>
       ) : error ? (
         <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-6 text-center text-sm text-danger">
@@ -252,7 +259,7 @@ export default function TopicMasteryPanel({
           </p>
         </div>
       ) : (
-        <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+        <div key={filter} className="mastery-results grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {displayedTopics.map((topicItem, index) => {
             const isCompleted = topicItem.isMastered
             return (

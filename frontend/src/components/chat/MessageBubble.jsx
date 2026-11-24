@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ArrowUpRight, BookOpen, Check, ChevronDown, Cpu, FileText, Files, Globe, Images, Sparkles, Target } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowUpRight, BookOpen, Check, ChevronDown, Copy, Cpu, FileText, Files, Globe, Images, Sparkles, Target } from 'lucide-react'
 import Markdown from './Markdown'
 import Spinner from '../ui/Spinner'
 
@@ -64,7 +64,30 @@ function ThoughtTrace({ thinking }) {
   )
 }
 
-export default function MessageBubble({ msg, index, expanded, onToggleSources, onOpenImage, onAsk, username }) {
+function CopyReply({ content }) {
+  const [status, setStatus] = useState('')
+  useEffect(() => {
+    if (!status) return
+    const timer = setTimeout(() => setStatus(''), 2500)
+    return () => clearTimeout(timer)
+  }, [status])
+
+  return (
+    <button type="button" onClick={async () => {
+      try {
+        await navigator.clipboard.writeText(content)
+        setStatus('Copied')
+      } catch {
+        setStatus('Copy failed')
+      }
+    }} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-dim transition-colors hover:bg-raised hover:text-fg">
+      {status === 'Copied' ? <Check size={14} className="text-emerald-700" /> : <Copy size={14} />}
+      <span aria-live="polite">{status || 'Copy answer'}</span>
+    </button>
+  )
+}
+
+export default function MessageBubble({ msg, replyRef, index, expanded, onToggleSources, onOpenImage, onAsk, username }) {
   if (msg.role === 'user') {
     return (
       <div className="flex animate-rise justify-end">
@@ -79,13 +102,13 @@ export default function MessageBubble({ msg, index, expanded, onToggleSources, o
   const imageToken = sessionStorage.getItem('authToken')
 
   return (
-    <div className="flex animate-rise gap-3 sm:gap-4">
+    <div ref={replyRef} className="flex animate-rise gap-3 sm:gap-4">
       <div className={`grid size-8 shrink-0 place-items-center rounded-full ring-1 ${isError ? 'bg-danger/10 text-danger ring-danger/30' : 'bg-[#0b0f1e] text-[#a5b4ff] ring-[#0b0f1e]/10 shadow-[0_6px_16px_-8px_#0b0f1e]'}`}>
         <Sparkles size={15} />
       </div>
 
       <div className="min-w-0 flex-1 space-y-3">
-        <ThoughtTrace thinking={msg.thinking} />
+        {!isError && <ThoughtTrace thinking={msg.thinking} />}
         {(msg.topic || msg.level || msg.model) && (
           <div className="flex flex-wrap gap-1.5">
             {msg.topic && <Chip tone="accent" icon={<BookOpen size={12} />} label="Topic:" value={msg.topic} />}
@@ -141,6 +164,7 @@ export default function MessageBubble({ msg, index, expanded, onToggleSources, o
         <div className={isError || msg.rejected ? 'rounded-xl border border-danger/25 bg-danger/5 px-4 py-3 text-sm text-danger' : ''}>
           <Markdown content={msg.content} />
         </div>
+        {!isError && msg.content && <CopyReply content={msg.content} />}
 
         {msg.prerequisites && msg.prerequisites.length > 0 && !msg.rejected && (
           <div className="rounded-xl border border-line bg-panel p-3.5 shadow-2xs">

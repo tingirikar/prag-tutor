@@ -1,46 +1,34 @@
 # PRAG-TUTOR
-it means Personlised RAG (Retrieval Augmented Generation) Tutor
-so what it means is, it is RAG + Personalization
-Personalization means
-- how much concept depth u want (beginner / intermediate / expert)
-- prerequisites (there is prerequistes option)
-- learner modelling (what students knows, what is his mastery in that concept)
+
+PRAG-TUTOR (Personalized Retrieval-Augmented Generation Tutor) is a course-based tutoring app. Teachers upload the material they teach and review the prerequisite links between topics. Students ask questions about a subject, inspect the passages behind an answer, and take quizzes that inform later explanations.
+
+For example, two students can ask the same DSA question about binary search. The tutor can skip an introduction to arrays for a student who has already demonstrated mastery, or give a refresher when that student's estimated mastery has declined. The student can also choose beginner, intermediate, or expert explanations.
+
+## Run locally on Windows
+
+1. Run `setup.bat` from the repository root to install dependencies and create the root `.env` file.
+2. Configure MongoDB, a Pinecone index, and the model provider as described in the [setup guide](documentation/SETUP.md).
+3. Run `run.bat` and open the URL printed by the frontend console (normally `http://localhost:5173`).
+
+For a first walkthrough, choose the DSA teacher demo account and upload a course PDF. Once indexing finishes, sign in as the student Alice, open **Data Structures & Algorithms**, and ask a question covered by that PDF. **Completed Topics** shows mastery for the open subject. The subject hub also has a **Topic Mastery** view for browsing across subjects.
+
+## Repository guide
+
+| Directory | What lives there |
+| --- | --- |
+| [frontend](frontend/) | React student and teacher workspaces, chat, quizzes, and mastery views |
+| [backend](backend/) | Express API, accounts, uploads, conversations, quiz scoring, and learner profiles |
+| [tutor](tutor/) | Python service for document processing, prerequisite graphs, retrieval, and answer generation |
+| `uploads/` | Runtime storage for subject PDFs and extracted images |
+| [documentation](documentation/) | Setup, architecture, technology choices, and evaluation notes |
+
+## Research status
+
+The repository includes a pilot with 60 Data Structures & Algorithms questions across three difficulty levels. A research question this system can support is whether quiz-derived mastery helps the tutor choose which prerequisites to explain. The pilot records generated answers and automated scores. Testing that question requires a controlled comparison, and measuring learning gains requires student outcome data. The [evaluation FAQ](documentation/FAQ.md#what-does-the-dsa-evaluation-measure) explains how to interpret the saved results.
 
 ## Documentation
-- [Installation & Setup Guide](SETUP.md)
-- [System Architecture](ARCHITECTURE.md)
-- [Tech Stack Details](TECHSTACK.md)
-- [Frequently Asked Questions (FAQ)](FAQ.md)
 
-## PRAG-TUTOR architecture
-so there are 4 folders
-```
-- frontend/   # User Interface
-- backend/    # WEB logic
-- tutor/      # AI Engine
-- uploads/    # documents uploaded by teachers
-```
-## USERS
-there are two users, students and teachers
-#### teachers
-- teachers can upload documents (currently restricted to pdf)
-- those documents are stored in uploads/ folder
-- those documents are chunked, embedded (using EMBEDDING MODEL) and those embeddings are 
-indexed and stored in pinecone vector database
-- images are also extracted from those documents
-
-#### students
-- 
-
-## WHY PRAG-TUTOR STANDS OUT
-> current AI like chatgpt, gemini, claude, etc..
-- we have to upload documents to get relevant explanations
-- they are trained on vast internet, so generated content feels outside
-- it has context, but is not focused on learning, its focused on general
-- it doesnt tract what user knows
-ex: if i ask it about 
-
-> PRAG-TUTOR 🔥
-- beginner / intermediate / expert level personalization
-- Learner modelling supports what students knows
-- prerequiste button helps them to learn prior concepts so learning becomes easy
+- [Setup and first run](documentation/SETUP.md)
+- [Architecture and data flow](documentation/ARCHITECTURE.md)
+- [Technology stack](documentation/TECHSTACK.md)
+- [Usage, troubleshooting, and evaluation FAQ](documentation/FAQ.md)

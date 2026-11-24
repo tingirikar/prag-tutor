@@ -1,199 +1,40 @@
-# ARCHITECTURE
+# Architecture
 
-/// MERMAID VISUAL DIAGRAM ///
+A student question passes through three services. The browser sends the question to Express, which adds the student's saved subject profile. The Python tutor retrieves course material and builds the explanation. Express returns the result and manages the conversation and quiz records.
 
-# HIGH LEVEL FOLDER STRUCTURE
-
-```text
-PRAG-TUTOR
-||
-||__ README.md
-||__ SETUP.md
-||__ ARCHITECTURE.md
-||__ TECHSTACK.md
-||
-||__ .gitignore
-||__ .env.example
-||__ assets/             # images of prag-tutor's website
-||
-||__ frontend/           # ReactJS
-||__ backend/            # NodeJS, ExpressJS, MongoDB
-||__ tutor/              # FastAPI
-||__ uploads/            # teacher uploaded documents and extracted images
+```mermaid
+flowchart LR
+    UI["React student and teacher UI"] -->|"/api"| API["Express API"]
+    API -->|"index and query requests"| Tutor["FastAPI tutor"]
+    API <-->|"accounts, chats, quizzes, mastery"| Mongo[("MongoDB")]
+    API -->|"save PDFs"| Disk[("Subject files")]
+    Tutor <-->|"PDFs and extracted images"| Disk
+    Tutor <-->|"topics and prerequisite edges"| Mongo
+    Tutor <-->|"index and retrieve chunks"| Vectors[("Pinecone")]
+    Tutor -->|"generate answers"| Model["Groq or Ollama"]
 ```
 
-# |__tutor/
+## From a PDF to a course graph
 
-### HIGH LEVEL
+1. Express checks the teacher's subject assignment, stages the PDF in `uploads/<subject>/documents/`, and records the upload in MongoDB.
+2. The document processor reads text by page, extracts qualifying images, chunks the text, computes embeddings, and writes vectors with source metadata to the subject's Pinecone namespace. A content hash helps track indexed files.
+3. The prerequisite pipeline extracts candidate topics, merges duplicate names, proposes weighted prerequisite edges, and checks for cycles and redundant links. The results go into MongoDB. Teachers can correct a topic's prerequisites in their workspace.
+4. The streaming upload endpoint forwards indexing progress to the teacher's browser. The document list records completion or failure.
 
-```text
-tutor/
-||
-||__ requirements.txt        # required libararies
-||__ main.py                 # entry point
-||
-||__ config/
-||__ document_processing/
-||__ query_processing/
-||__ learner_modelling/
-```
+Implementation: [upload controller](../backend/controllers/documentController.js), [document processor](../tutor/document_processing/pipeline.py), [prerequisite pipeline](../tutor/prerequisite_processing/pipeline.py), and [graph validation](../tutor/prerequisite_processing/validation.py).
 
-### LOW LEVEL
+## From a question to an explanation
 
-```text
-config/
-||
-||__ db.py
-```
+Express looks up the student's mastery records for the selected subject. It sends the question, chat history, chosen difficulty, model preference, mastered topics, and structured learner profile to `POST /rag/query`.
 
-```text
-document_processing/
-||
-||__ chunking.py
-||__ embedding.py
-||__ indexing.py
-||__ image_extraction.py
-||__ pdf_reader.py
-||__ pipeline.py
-```
+The tutor searches the subject's indexed passages, identifies a course topic, and looks up its prerequisites. Retained prerequisites can be skipped and decayed ones can be flagged for a refresher. It uses these signals, relevant misconception labels, and the retrieved text to build the generation prompt. The student receives the answer and available source snippets. Document images and generated Mermaid diagrams are separate display options.
 
-```text
-query_processing/
-||
-||__ image_handler.py
-||__ llm_provider.py
-||__ prompt_builder.py
-||__ query_processor.py
-||__ response_generator.py
-||__ topic_identifier.py
-||__ vector_search.py
-```
+Implementation: [query controller](../backend/controllers/queryController.js), [response generator](../tutor/query_processing/response_generator.py), and [prompt builder](../tutor/query_processing/prompt_builder.py).
 
-```text
-learner_modelling/
-||
-||__ bkt.py
-||__ decay.py
-||__ misconception.py
-```
+## From a quiz to the next question
 
-# |__backend/
+Express scores submitted quiz items and updates the student's per-topic records using Bayesian Knowledge Tracing (BKT). The update uses correct and incorrect observations. An elapsed-time decay function estimates retained mastery at the next assessment or lookup. Wrong choices can contribute a suspected misconception, and strong performance on an advanced topic can reinforce eligible direct prerequisites.
 
-### HIGH LEVEL (Model-Router-Model Architecture)
+The resulting profile feeds both the mastery dashboard and later query requests. A mastery percentage is the model's estimate for a topic. A quiz score is the observed result on a particular set of questions.
 
-```text
-backend/
-||
-||__ server.js
-||__ package.json
-||__ package-lock.json
-||__ node_modules/
-||
-||__ config/
-||__ models/
-||__ routes/
-||__ middleware/
-||__ controllers/
-||__ services/
-```
-
-### LOW LEVEL
-
-```text
-config/
-||
-||__ db.js
-||__ seed.js
-```
-
-```text
-models/
-||
-||__ User.js
-||__ Subject.js
-||__ Document.js
-||__ Prerequisite.js
-||__ Conversation.js
-||__ QuizSet.js
-||__ QuizState.js
-||__ QuizAttempt.js
-||__ TopicMastery.js
-```
-
-```text
-routes/
-||
-||__ authRoutes.js
-||__ subjectRoutes.js
-||__ queryRoutes.js
-||__ conversationRoutes.js
-||__ prerequisiteRoutes.js
-||__ documentRoutes.js
-||__ quizRoutes.js
-```
-
-```text
-middleware/
-||
-||__ auth.js
-||__ upload.js
-||__ validation.js
-||__ rateLimit.js
-||__ errorHandler.js
-```
-
-```text
-controllers/
-||
-||__ authController.js
-||__ subjectController.js
-||__ queryController.js
-||__ conversationController.js
-||__ prerequisiteController.js
-||__ documentController.js
-```
-
-```text
-services/
-||
-||__ pythonService.js
-||__ documentService.js
-||__ quizService.js
-```
-
-# |__uploads/
-
-```text
-uploads/
-||
-||__ dsa/
-|  |__ documents/
-|  |__ images/
-||
-||__ ml/
-|  |__ documents/
-|  |__ images/
-||
-||__ ..
-```
-
-# |__frontend/
-
-### HIGH LEVEL
-
-```text
-frontend/
-||
-||__ index.html
-||__ package.json
-||__ package-lock.json
-||__ vite.config.js
-||__ node_modules/
-||
-||__ src/
-   |
-   |__ App.jsx
-   |
-   |__ components/
-   |__ pages/
-```
+The app's persisted updates run in the [Node quiz service](../backend/services/quizService.js). The tutor also exposes [Python learner-model endpoints](../tutor/main.py) and [learner-model functions](../tutor/learner_modelling/).
